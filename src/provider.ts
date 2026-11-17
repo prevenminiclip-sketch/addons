@@ -290,7 +290,7 @@ export class MovyProvider {
     const toStreamUrl = (rawUrl: string) => {
       if (!baseUrl) return rawUrl;
       const encoded = Buffer.from(rawUrl, 'utf8').toString('base64url');
-      return `${baseUrl}/proxy/hls?d=${encoded}`;
+      return `${baseUrl}/proxy/hls/stream.m3u8?d=${encoded}`;
     };
 
     const proxyHeaders = {

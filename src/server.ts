@@ -65,7 +65,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // HLS Stream & Segment Proxy Endpoint
-  if (normalizedPath === '/proxy/hls') {
+  if (normalizedPath.startsWith('/proxy/hls')) {
     const encoded = parsedUrl.searchParams.get('d');
     if (!encoded) {
       res.writeHead(400, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
@@ -98,7 +98,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const contentType = upstreamRes.headers.get('content-type') || '';
-      const isM3u8 = contentType.includes('mpegurl') || targetUrl.includes('.m3u8');
+      const isM3u8 = contentType.includes('mpegurl') || targetUrl.includes('.m3u8') || normalizedPath.endsWith('.m3u8');
 
       if (isM3u8) {
         const text = await upstreamRes.text();
@@ -118,7 +118,7 @@ const server = http.createServer(async (req, res) => {
                 return `#EXT-X-MAP:URI="${absUri}"`;
               }
               const enc = Buffer.from(absUri, 'utf8').toString('base64url');
-              return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls?d=${enc}"`;
+              return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}"`;
             }
             return line;
           }
@@ -127,10 +127,10 @@ const server = http.createServer(async (req, res) => {
 
           const absUrl = new URL(trimmed, targetUrl).toString();
 
-          // Sub-playlists must always be proxied with Referer
+          // Sub-playlists must always be proxied with .m3u8 extension for ExoPlayer
           if (absUrl.includes('.m3u8')) {
             const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
-            return `${proxyBase}/proxy/hls?d=${enc}`;
+            return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}`;
           }
 
           // GoldenKite direct CDN segments (Miami & Boise) do not require Referer, direct CDN stream
@@ -140,7 +140,8 @@ const server = http.createServer(async (req, res) => {
 
           // Other hoster segments that require Referer
           const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
-          return `${proxyBase}/proxy/hls?d=${enc}`;
+          const segExt = absUrl.includes('.m4s') ? 'seg.m4s' : 'seg.ts';
+          return `${proxyBase}/proxy/hls/${segExt}?d=${enc}`;
         }).join('\n');
 
         res.writeHead(200, {
