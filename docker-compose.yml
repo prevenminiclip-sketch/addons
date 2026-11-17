@@ -1,11 +1,16 @@
 version: "3.8"
 
+# =============================================================================
+# Movy.sx Stremio Addon (Standalone Stack)
+# Connects to CineStream network (cinestream_net) to share Caddy HTTPS & DuckDNS
+# =============================================================================
+
 services:
   movy-stremio-addon:
+    image: movy-stremio-addon:latest
     build:
       context: .
       dockerfile: Dockerfile
-    image: movy-stremio-addon:latest
     container_name: movy-stremio-addon
     restart: unless-stopped
     ports:
@@ -13,3 +18,10 @@ services:
     environment:
       - PORT=7000
       - NODE_ENV=production
+    networks:
+      - cinestream_net
+
+networks:
+  cinestream_net:
+    name: cinestream_net
+    external: true

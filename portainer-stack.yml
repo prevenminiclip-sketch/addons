@@ -1,10 +1,8 @@
 version: "3.8"
 
 # =============================================================================
-# Portainer Stack: Movy.sx Stremio Addon (Standalone)
-# =============================================================================
-# Direct 4K / 1080p / 720p / 480p CDN HLS streams for movies and TV series
-# Manifest URL to paste into Stremio: http://<docker-host-ip>:7000/manifest.json
+# Portainer Stack: Movy.sx Stremio Addon (Standalone Stack)
+# Shares CineStream's network (cinestream_net) for DuckDNS HTTPS via Caddy
 # =============================================================================
 
 services:
@@ -20,3 +18,10 @@ services:
     environment:
       - PORT=7000
       - NODE_ENV=production
+    networks:
+      - cinestream_net
+
+networks:
+  cinestream_net:
+    name: cinestream_net
+    external: true
