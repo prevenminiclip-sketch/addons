@@ -45,9 +45,11 @@ const server = http.createServer(async (req, res) => {
 
   const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = parsedUrl.pathname;
+  // Normalize path by stripping optional prefixes (e.g., /movy, /stremio)
+  const normalizedPath = pathname.replace(/^\/(?:movy|stremio)/i, '') || '/';
 
   // Root or health check
-  if (pathname === '/' || pathname === '/health') {
+  if (normalizedPath === '/' || normalizedPath === '/health') {
     return sendJson(res, 200, {
       status: 'ok',
       service: 'Movy.sx Stremio Addon',
@@ -57,12 +59,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Stremio Addon Manifest
-  if (pathname === '/manifest.json') {
+  if (normalizedPath === '/manifest.json') {
     return sendJson(res, 200, MANIFEST);
   }
 
   // Stremio Stream request: /stream/:type/:id.json
-  const streamMatch = /^\/stream\/(movie|series)\/([^/]+)\.json$/i.exec(pathname);
+  const streamMatch = /^\/stream\/(movie|series)\/([^/]+)\.json$/i.exec(normalizedPath);
   if (streamMatch) {
     const type = streamMatch[1].toLowerCase() as 'movie' | 'series';
     const rawId = decodeURIComponent(streamMatch[2]);
