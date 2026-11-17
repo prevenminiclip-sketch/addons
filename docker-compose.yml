@@ -9,10 +9,12 @@ services:
     container_name: movy-stremio-addon
     restart: unless-stopped
     ports:
-      - "${PORT:-7000}:7000"
+      # Bind only to localhost so external traffic MUST route securely through Caddy / HTTPS
+      - "127.0.0.1:${PORT:-7000}:7000"
     environment:
       - PORT=7000
       - NODE_ENV=production
+      - ACCESS_KEY=${ACCESS_KEY:-}
     networks:
       - movy_net
 

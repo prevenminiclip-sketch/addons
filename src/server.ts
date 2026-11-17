@@ -5,6 +5,7 @@ import { MovyProvider } from './provider';
 import { HlsAccelerator } from './hls-accelerator';
 
 const PORT = parseInt(process.env.PORT || '7000', 10);
+const ACCESS_KEY = (process.env.ACCESS_KEY || '').trim();
 const provider = new MovyProvider();
 const accelerator = new HlsAccelerator();
 
@@ -48,16 +49,63 @@ const server = http.createServer(async (req, res) => {
 
   const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = parsedUrl.pathname;
-  // Normalize path by stripping optional prefixes (e.g., /movy, /stremio)
-  const normalizedPath = pathname.replace(/^\/(?:movy|stremio)/i, '') || '/';
+
+  // Split and inspect path segments
+  const rawSegments = pathname.split('/').filter(Boolean);
+  const cleanSegments = [...rawSegments];
+
+  // Strip leading 'movy' or 'stremio' prefix if present
+  if (cleanSegments[0]?.toLowerCase() === 'movy' || cleanSegments[0]?.toLowerCase() === 'stremio') {
+    cleanSegments.shift();
+  }
+
+  // Extract access key from query param, header, or URL path
+  let providedKey =
+    parsedUrl.searchParams.get('k') ||
+    parsedUrl.searchParams.get('key') ||
+    parsedUrl.searchParams.get('token') ||
+    (req.headers['x-access-key'] as string | undefined) ||
+    '';
+
+  if (!providedKey && req.headers['authorization']) {
+    const authHeader = req.headers['authorization'];
+    if (authHeader.startsWith('Bearer ')) {
+      providedKey = authHeader.substring(7).trim();
+    }
+  }
+
+  // Check if first path segment matches the ACCESS_KEY
+  if (ACCESS_KEY && cleanSegments.length > 0) {
+    const seg = cleanSegments[0];
+    if (seg === ACCESS_KEY || decodeURIComponent(seg) === ACCESS_KEY) {
+      providedKey = ACCESS_KEY;
+      cleanSegments.shift();
+      // Handle optional 'movy' / 'stremio' prefix after key (e.g. /<key>/movy/manifest.json)
+      if (cleanSegments[0]?.toLowerCase() === 'movy' || cleanSegments[0]?.toLowerCase() === 'stremio') {
+        cleanSegments.shift();
+      }
+    }
+  }
+
+  const normalizedPath = '/' + cleanSegments.join('/');
+
+  // Reject unauthorized requests if ACCESS_KEY is configured
+  if (ACCESS_KEY && providedKey !== ACCESS_KEY) {
+    return sendJson(res, 401, {
+      error: 'Unauthorized',
+      message: 'A valid secret access key is required to use this addon.',
+    });
+  }
 
   // Root or health check
   if (normalizedPath === '/' || normalizedPath === '/health') {
+    const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
     return sendJson(res, 200, {
       status: 'ok',
       service: 'Movy.sx Stremio Addon',
       version: MANIFEST.version,
-      manifest: '/manifest.json',
+      manifest: `${keyPrefix}/manifest.json`,
+      authenticated: !!ACCESS_KEY,
     });
   }
 
@@ -125,7 +173,9 @@ const server = http.createServer(async (req, res) => {
         const text = await upstreamRes.text();
         const proto = (req.headers['x-forwarded-proto'] as string) || ((req.socket as any).encrypted ? 'https' : 'http');
         const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || `localhost:${PORT}`;
-        const proxyBase = `${proto}://${host}`;
+        const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
+        const proxyBase = `${proto}://${host}${keyPrefix}`;
+        const keyQuery = ACCESS_KEY ? `&k=${encodeURIComponent(ACCESS_KEY)}` : '';
 
         // If this is a media playlist with segment chunks, register for multi-stream prefetching
         if (text.includes('#EXTINF:')) {
@@ -149,7 +199,7 @@ const server = http.createServer(async (req, res) => {
             if (match) {
               const absUri = new URL(match[1], targetUrl).toString();
               const enc = Buffer.from(absUri, 'utf8').toString('base64url');
-              return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}"`;
+              return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}${keyQuery}"`;
             }
             return line;
           }
@@ -161,13 +211,13 @@ const server = http.createServer(async (req, res) => {
           // Sub-playlists must always be proxied with .m3u8 extension for ExoPlayer
           if (absUrl.includes('.m3u8')) {
             const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
-            return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}`;
+            return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}${keyQuery}`;
           }
 
           // Route media segments through the multi-connection accelerator proxy
           const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
           const segExt = absUrl.includes('.m4s') ? 'seg.m4s' : 'seg.ts';
-          return `${proxyBase}/proxy/hls/${segExt}?d=${enc}`;
+          return `${proxyBase}/proxy/hls/${segExt}?d=${enc}${keyQuery}`;
         }).join('\n');
 
         res.writeHead(200, {
@@ -219,9 +269,10 @@ const server = http.createServer(async (req, res) => {
       console.log(`[Stream Request] Type: ${type}, ID: ${rawId}`);
       const proto = (req.headers['x-forwarded-proto'] as string) || ((req.socket as any).encrypted ? 'https' : 'http');
       const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || `localhost:${PORT}`;
-      const baseUrl = `${proto}://${host}`;
+      const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
+      const baseUrl = `${proto}://${host}${keyPrefix}`;
 
-      const streams = await provider.getStreams(type, rawId, baseUrl);
+      const streams = await provider.getStreams(type, rawId, baseUrl, ACCESS_KEY);
       console.log(`[Stream Response] Found ${streams.length} stream(s) for ${rawId}`);
       return sendJson(res, 200, { streams });
     } catch (err: any) {
@@ -238,7 +289,13 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);
   console.log(`🚀 Movy.sx Stremio Addon Server running on port ${PORT}`);
   console.log(`⚡ HLS Multi-Stream Accelerator: Active (4 concurrent prefetch streams)`);
-  console.log(`👉 Manifest URL: http://localhost:${PORT}/manifest.json`);
+  if (ACCESS_KEY) {
+    console.log(`🔒 Secret Access Token: Enabled`);
+    console.log(`👉 Protected Manifest URL: http://localhost:${PORT}/${ACCESS_KEY}/manifest.json`);
+  } else {
+    console.log(`🔓 Secret Access Token: Disabled (Public mode)`);
+    console.log(`👉 Open Manifest URL: http://localhost:${PORT}/manifest.json`);
+  }
   console.log(`🔗 Ready to connect into Stremio`);
   console.log(`====================================================`);
 });

@@ -279,7 +279,7 @@ export class MovyProvider {
    * Sorted by fastest source hoster first, then by resolution.
    * If baseUrl is provided, stream URLs are wrapped in the local /proxy/hls endpoint with Referer injection.
    */
-  async getStreams(type: 'movie' | 'series', id: string, baseUrl?: string): Promise<StremioStream[]> {
+  async getStreams(type: 'movie' | 'series', id: string, baseUrl?: string, accessKey?: string): Promise<StremioStream[]> {
     const target = this.parseStremioId(type, id);
     const meta = await this.resolveMetadata(target);
     if (!meta) return [];
@@ -290,7 +290,8 @@ export class MovyProvider {
     const toStreamUrl = (rawUrl: string) => {
       if (!baseUrl) return rawUrl;
       const encoded = Buffer.from(rawUrl, 'utf8').toString('base64url');
-      return `${baseUrl}/proxy/hls/stream.m3u8?d=${encoded}`;
+      const keyParam = accessKey ? `&k=${encodeURIComponent(accessKey)}` : '';
+      return `${baseUrl}/proxy/hls/stream.m3u8?d=${encoded}${keyParam}`;
     };
 
     const proxyHeaders = {
