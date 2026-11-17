@@ -1,0 +1,11 @@
+{
+    # Global options
+}
+
+{$DUCKDNS_DOMAIN} {
+    tls {
+        dns duckdns {$DUCKDNS_TOKEN}
+    }
+
+    reverse_proxy movy-stremio-addon:7000
+}

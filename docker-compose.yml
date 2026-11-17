@@ -1,16 +1,11 @@
 version: "3.8"
 
-# =============================================================================
-# Movy.sx Stremio Addon (Standalone Stack)
-# Connects to EasyNews Caddy network (stremio_net) for DuckDNS HTTPS
-# =============================================================================
-
 services:
   movy-stremio-addon:
-    image: movy-stremio-addon:latest
     build:
       context: .
       dockerfile: Dockerfile
+    image: movy-stremio-addon:latest
     container_name: movy-stremio-addon
     restart: unless-stopped
     ports:
@@ -19,9 +14,33 @@ services:
       - PORT=7000
       - NODE_ENV=production
     networks:
-      - stremio_net
+      - movy_net
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    image: movy-caddy-duckdns:latest
+    container_name: movy-caddy-ssl
+    restart: unless-stopped
+    ports:
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    environment:
+      - DUCKDNS_DOMAIN=${DUCKDNS_DOMAIN:-my-easynews-plus.duckdns.org}
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - movy_net
+    depends_on:
+      - movy-stremio-addon
+
+volumes:
+  caddy_data:
+  caddy_config:
 
 networks:
-  stremio_net:
-    name: stremio_net
-    external: true
+  movy_net:
+    driver: bridge

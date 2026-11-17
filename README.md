@@ -1,35 +1,36 @@
-# Movy.sx Stremio Addon (Standalone Portainer Stack)
+# Movy.sx Stremio Addon (Self-Contained DuckDNS Stack)
 
-A standalone, ultra-lightweight Stremio Addon server (~50MB Docker image) that serves direct CDN HLS streams (`4K`, `1080p`, `720p`, `480p`) from `movy.sx` / `wecollege.net`.
+A completely self-contained Portainer stack with **Movy.sx Stremio Addon** and **Caddy** (with DuckDNS DNS-01 SSL).
 
-Connected to your EasyNews stack via Docker network `stremio_net` to share your **DuckDNS HTTPS domain** and Let's Encrypt certificate.
+- **100% Standalone:** No external network dependencies, no other stacks required.
+- **Automatic Let's Encrypt SSL:** Caddy acquires and auto-renews a trusted HTTPS certificate via DuckDNS DNS-01 challenge (works even on local LAN IPs or behind CGNAT without port forwarding).
+- **Direct 4K/1080p HLS Streams:** Playable directly in Stremio Web (`web.stremio.com`), Android TV, FireStick, iOS, and Desktop.
 
 ---
 
-## ⚡ How It Works with DuckDNS & EasyNews Caddy
+## 📁 Stack Structure
 
-Your EasyNews stack runs a custom Caddy container with `caddy-dns/duckdns` on port 443.
-
-When both stacks share the `stremio_net` Docker network:
-
-1. **Both Addons live on the same DuckDNS domain:**
-   - **EasyNews Addon:** `https://<your-subdomain>.duckdns.org/manifest.json`
-   - **Movy Addon:** `https://<your-subdomain>.duckdns.org/movy/manifest.json`
-2. **Zero Port Conflicts:** Movy runs internally on port 7000 and is routed through Caddy on port 443.
-3. **100% Stremio Web Compatible:** Works seamlessly on `web.stremio.com`, Android TV, FireStick, iOS, and PC.
-4. **Pure Direct CDN Streams:** Only lightweight JSON requests go through Caddy; actual video streams directly from `moon.goldenkite.top` CDN to your Stremio player.
+```text
+C:\movy-stremio-addon\
+├── docker-compose.yml          # Compose specification
+├── portainer-stack.yml         # Portainer-ready Stack file
+├── Dockerfile                  # Multi-stage lightweight Movy Node.js build
+├── Dockerfile.caddy            # Caddy builder with caddy-dns/duckdns
+├── Caddyfile                   # HTTPS reverse proxy configuration
+├── .env                        # Domain & DuckDNS Token configuration
+├── .env.example                # Example configuration
+└── src/                        # Reversed cipher and Stremio HTTP server
+```
 
 ---
 
 ## 🚀 Portainer Deployment
 
-### Step 1: Update Your EasyNews Stack in Portainer
-1. In Portainer, go to your existing **stremio-easynews-addon** stack.
-2. Pull the latest git changes (or click **Update the stack** with repo pull enabled).
-3. This creates the shared `stremio_net` network and updates Caddy to route `/movy*`.
+### 1. Stop any other stack using port 443
+If you previously had another stack (like `stremio-easynews-addon`) bound to port 443, stop it in Portainer so port 443 is free for this stack.
 
-### Step 2: Deploy Movy Addon Stack
-1. In Portainer, go to **Stacks** ➔ **Add stack**.
+### 2. Deploy in Portainer
+1. Go to **Stacks** ➔ **Add stack**.
 2. Name: `movy-stremio-addon`
 3. Build method: **Repository**
 4. Repository URL:
@@ -37,17 +38,20 @@ When both stacks share the `stremio_net` Docker network:
    https://github.com/charlietrp77-cmd/movy-stremio-addon.git
    ```
 5. Reference: `refs/heads/main`
-6. Click **Deploy the stack**.
+6. Compose path: `docker-compose.yml`
+7. In **Environment variables**, set:
+   - `DUCKDNS_DOMAIN=my-easynews-plus.duckdns.org`
+   - `DUCKDNS_TOKEN=0dc56872-8e37-4e5f-9d5c-6f36e8182c2b`
+8. Click **Deploy the stack**.
 
 ---
 
-## 📺 Stremio Install URLs
+## 📺 Stremio Manifest URL
 
-- **Over DuckDNS (HTTPS - Recommended for all devices):**
-  ```text
-  https://<your-subdomain>.duckdns.org/movy/manifest.json
-  ```
-- **Local LAN (HTTP fallback):**
-  ```text
-  http://<DOCKER-HOST-IP>:7000/manifest.json
-  ```
+Once deployed, paste your clean HTTPS manifest URL directly into Stremio's search bar:
+
+```text
+https://my-easynews-plus.duckdns.org/manifest.json
+```
+
+*(No `/movy` prefix, no port `:7000`. Pure HTTPS root manifest ready to install).*
