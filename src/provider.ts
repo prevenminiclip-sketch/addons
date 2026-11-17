@@ -277,14 +277,21 @@ export class MovyProvider {
   /**
    * High-level entrypoint: Takes a Stremio stream query and returns playable Stremio streams
    * Sorted by fastest source hoster first, then by resolution.
+   * If baseUrl is provided, stream URLs are wrapped in the local /proxy/hls endpoint with Referer injection.
    */
-  async getStreams(type: 'movie' | 'series', id: string): Promise<StremioStream[]> {
+  async getStreams(type: 'movie' | 'series', id: string, baseUrl?: string): Promise<StremioStream[]> {
     const target = this.parseStremioId(type, id);
     const meta = await this.resolveMetadata(target);
     if (!meta) return [];
 
     const serverResults = await this.fetchAllSources(target, meta);
     if (!serverResults || serverResults.length === 0) return [];
+
+    const toStreamUrl = (rawUrl: string) => {
+      if (!baseUrl) return rawUrl;
+      const encoded = Buffer.from(rawUrl, 'utf8').toString('base64url');
+      return `${baseUrl}/proxy/hls?d=${encoded}`;
+    };
 
     const proxyHeaders = {
       Referer: 'https://www.movy.sx/',
@@ -312,7 +319,7 @@ export class MovyProvider {
           stream: {
             name: `${server.icon} Movy [Auto]`,
             title: `[${server.name}] ${server.hoster} • Master Playlist (Auto 4K/1080p)\n⚡ Direct High-Speed HLS Stream`,
-            url: data.playlist,
+            url: toStreamUrl(data.playlist),
             behaviorHints: {
               bingeGroup,
               notWebReady: false,
@@ -335,7 +342,7 @@ export class MovyProvider {
           stream: {
             name: `${server.icon} Movy [${badge}]`,
             title: `[${server.name}] ${server.hoster} • ${src.quality} HLS Stream\n⚡ Direct Stream (${badge})`,
-            url: src.url,
+            url: toStreamUrl(src.url),
             behaviorHints: {
               bingeGroup,
               notWebReady: false,
