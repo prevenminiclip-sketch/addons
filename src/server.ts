@@ -2,9 +2,11 @@ import * as http from 'http';
 import { URL } from 'url';
 import { Readable } from 'stream';
 import { MovyProvider } from './provider';
+import { HlsAccelerator } from './hls-accelerator';
 
 const PORT = parseInt(process.env.PORT || '7000', 10);
 const provider = new MovyProvider();
+const accelerator = new HlsAccelerator();
 
 const MANIFEST = {
   id: 'org.cinestream.movysx',
@@ -64,7 +66,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, MANIFEST);
   }
 
-  // HLS Stream & Segment Proxy Endpoint
+  // HLS Stream & Segment Proxy Endpoint with Multi-Stream Accelerator
   if (normalizedPath.startsWith('/proxy/hls')) {
     const encoded = parsedUrl.searchParams.get('d');
     if (!encoded) {
@@ -80,14 +82,33 @@ const server = http.createServer(async (req, res) => {
       return res.end('Invalid encoding');
     }
 
+    const isM3u8 = targetUrl.includes('.m3u8') || normalizedPath.endsWith('.m3u8');
+    const rangeHeader = req.headers['range'] as string | undefined;
+
+    // Fast-path: Check HLS Multi-Stream Accelerator Cache for video segments (.m4s, .ts)
+    if (!isM3u8) {
+      const cached = await accelerator.getSegment(targetUrl, rangeHeader);
+      if (cached) {
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': '*',
+          'Content-Type': cached.contentType || 'video/mp4',
+          'Content-Length': cached.data.byteLength,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'public, max-age=3600',
+        });
+        return res.end(cached.data);
+      }
+    }
+
     const upstreamHeaders: Record<string, string> = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Origin': 'https://www.movy.sx',
       'Referer': 'https://www.movy.sx/',
     };
 
-    if (req.headers['range']) {
-      upstreamHeaders['Range'] = req.headers['range'] as string;
+    if (rangeHeader) {
+      upstreamHeaders['Range'] = rangeHeader;
     }
 
     try {
@@ -98,13 +119,26 @@ const server = http.createServer(async (req, res) => {
       }
 
       const contentType = upstreamRes.headers.get('content-type') || '';
-      const isM3u8 = contentType.includes('mpegurl') || targetUrl.includes('.m3u8') || normalizedPath.endsWith('.m3u8');
+      const checkM3u8 = isM3u8 || contentType.includes('mpegurl');
 
-      if (isM3u8) {
+      if (checkM3u8) {
         const text = await upstreamRes.text();
         const proto = (req.headers['x-forwarded-proto'] as string) || ((req.socket as any).encrypted ? 'https' : 'http');
         const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || `localhost:${PORT}`;
         const proxyBase = `${proto}://${host}`;
+
+        // If this is a media playlist with segment chunks, register for multi-stream prefetching
+        if (text.includes('#EXTINF:')) {
+          const segmentUrls: string[] = [];
+          for (const l of text.split('\n')) {
+            const t = l.trim();
+            if (t && !t.startsWith('#')) {
+              const abs = new URL(t, targetUrl).toString();
+              segmentUrls.push(abs);
+            }
+          }
+          accelerator.registerPlaylist(targetUrl, segmentUrls);
+        }
 
         const rewritten = text.split('\n').map(line => {
           const trimmed = line.trim();
@@ -114,9 +148,6 @@ const server = http.createServer(async (req, res) => {
             const match = trimmed.match(/#EXT-X-MAP:URI="([^"]+)"/);
             if (match) {
               const absUri = new URL(match[1], targetUrl).toString();
-              if (absUri.includes('stormhive.top') || absUri.includes('laserlamp.top')) {
-                return `#EXT-X-MAP:URI="${absUri}"`;
-              }
               const enc = Buffer.from(absUri, 'utf8').toString('base64url');
               return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}"`;
             }
@@ -133,12 +164,7 @@ const server = http.createServer(async (req, res) => {
             return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}`;
           }
 
-          // GoldenKite direct CDN segments (Miami & Boise) do not require Referer, direct CDN stream
-          if (absUrl.includes('stormhive.top') || absUrl.includes('laserlamp.top')) {
-            return absUrl;
-          }
-
-          // Other hoster segments that require Referer
+          // Route media segments through the multi-connection accelerator proxy
           const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
           const segExt = absUrl.includes('.m4s') ? 'seg.m4s' : 'seg.ts';
           return `${proxyBase}/proxy/hls/${segExt}?d=${enc}`;
@@ -153,11 +179,11 @@ const server = http.createServer(async (req, res) => {
         return res.end(rewritten);
       }
 
-      // Stream media segment
+      // Stream media segment directly from upstream if not in accelerator cache
       const resHeaders: Record<string, string | number> = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': '*',
-        'Content-Type': contentType || 'video/mp2t',
+        'Content-Type': contentType || 'video/mp4',
       };
 
       const cl = upstreamRes.headers.get('content-length');
@@ -211,6 +237,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);
   console.log(`🚀 Movy.sx Stremio Addon Server running on port ${PORT}`);
+  console.log(`⚡ HLS Multi-Stream Accelerator: Active (4 concurrent prefetch streams)`);
   console.log(`👉 Manifest URL: http://localhost:${PORT}/manifest.json`);
   console.log(`🔗 Ready to connect into Stremio`);
   console.log(`====================================================`);
