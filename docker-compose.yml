@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  movy-stremio-addon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: movy-stremio-addon:latest
+    container_name: movy-stremio-addon
+    restart: unless-stopped
+    ports:
+      - "${PORT:-7000}:7000"
+    environment:
+      - PORT=7000
+      - NODE_ENV=production

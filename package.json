@@ -1,0 +1,25 @@
+{
+  "name": "movy-stremio-addon",
+  "version": "1.0.0",
+  "description": "Stremio / AIOStreams add-on for movy.sx direct HLS streaming",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsc -w",
+    "test:cli": "tsc && node dist/test.js"
+  },
+  "keywords": [
+    "stremio",
+    "aiostreams",
+    "addon",
+    "movy",
+    "hls"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,22 @@
+version: "3.8"
+
+# =============================================================================
+# Portainer Stack: Movy.sx Stremio Addon (Standalone)
+# =============================================================================
+# Direct 4K / 1080p / 720p / 480p CDN HLS streams for movies and TV series
+# Manifest URL to paste into Stremio: http://<docker-host-ip>:7000/manifest.json
+# =============================================================================
+
+services:
+  movy-stremio-addon:
+    image: movy-stremio-addon:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: movy-stremio-addon
+    restart: unless-stopped
+    ports:
+      - "${PORT:-7000}:7000"
+    environment:
+      - PORT=7000
+      - NODE_ENV=production
