@@ -2,7 +2,7 @@ version: "3.8"
 
 # =============================================================================
 # Movy.sx Stremio Addon (Standalone Stack)
-# Connects to CineStream network (cinestream_net) to share Caddy HTTPS & DuckDNS
+# Connects to EasyNews Caddy network (stremio_net) for DuckDNS HTTPS
 # =============================================================================
 
 services:
@@ -19,9 +19,9 @@ services:
       - PORT=7000
       - NODE_ENV=production
     networks:
-      - cinestream_net
+      - stremio_net
 
 networks:
-  cinestream_net:
-    name: cinestream_net
+  stremio_net:
+    name: stremio_net
     external: true
