@@ -3,19 +3,13 @@ version: "3.8"
 # =============================================================================
 # Portainer Stack: Movy.sx Stremio Addon (Self-Contained with DuckDNS & Caddy)
 # =============================================================================
-# Services:
-#   1. movy-stremio-addon  -> Direct HLS 4K/1080p Stremio Addon server
-#   2. caddy               -> Automated HTTPS (Let's Encrypt DNS-01 via DuckDNS)
-#
-# Stremio Manifest URL: https://<your-subdomain>.duckdns.org/manifest.json
-# =============================================================================
 
 services:
   movy-stremio-addon:
     build:
       context: .
       dockerfile: Dockerfile
-    image: movy-stremio-addon:latest
+    pull_policy: build
     container_name: movy-stremio-addon
     restart: unless-stopped
     ports:
@@ -30,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.caddy
-    image: movy-caddy-duckdns:latest
+    pull_policy: build
     container_name: movy-caddy-ssl
     restart: unless-stopped
     ports:

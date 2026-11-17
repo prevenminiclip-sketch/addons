@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: movy-stremio-addon:latest
+    pull_policy: build
     container_name: movy-stremio-addon
     restart: unless-stopped
     ports:
@@ -20,7 +20,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.caddy
-    image: movy-caddy-duckdns:latest
+    pull_policy: build
     container_name: movy-caddy-ssl
     restart: unless-stopped
     ports:
