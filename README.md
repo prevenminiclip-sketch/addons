@@ -15,37 +15,54 @@ A completely self-contained stack with **Movy.sx Stremio Addon** and **Caddy** (
 
 ```text
 movy-stremio-addon/
+├── oci-resource-manager/       # OCI "CloudFormation" Stack (Terraform + schema.yaml)
+│   ├── main.tf                 # Complete VCN, Subnet, Security List, & VM provisioning
+│   ├── variables.tf            # Parametrized configuration (Access Key, Shape, RAM)
+│   ├── outputs.tf              # Outputs the final Stremio manifest URL
+│   └── schema.yaml             # OCI Console UI descriptor
+├── movy-oci-stack.zip          # Ready-to-upload OCI Resource Manager stack package
 ├── docker-compose.yml          # Compose specification (localhost hardened)
 ├── portainer-stack.yml         # Portainer-ready Stack file
 ├── Dockerfile                  # Multi-stage lightweight Movy Node.js build
 ├── Dockerfile.caddy            # Dual-mode Caddy builder (sslip.io / DuckDNS)
 ├── entrypoint-caddy.sh         # Auto-SSL generator script
-├── deploy-oci.sh               # 1-Click OCI setup script
+├── deploy-oci.sh               # 1-Click OCI manual setup script
 ├── .env.example                # Example configuration
 └── src/                        # Reversed cipher, HLS accelerator, & Stremio server
 ```
 
 ---
 
-## 🔒 Security & Access Token Protection
+## ☁️ Option A: OCI Resource Manager (CloudFormation Equivalent - 100% Automated)
 
-To keep your cloud instance (e.g. Oracle Cloud Free Tier) completely private and prevent strangers or crawlers from using your bandwidth:
+Oracle Cloud's direct equivalent of AWS CloudFormation is **OCI Resource Manager**. We've provided a complete Terraform stack (`movy-oci-stack.zip`) that automatically provisions everything in your Oracle account:
+- Dedicated VCN & Public Subnet
+- Internet Gateway & Route Tables
+- Cloud Security List (opens ports 80 & 443)
+- Always-Free Ubuntu ARM VM
+- Cloud-init script that automatically installs Docker, configures `<IP>.sslip.io` with Let's Encrypt HTTPS, starts the addon, and prints your Stremio URL in the console.
 
-1. In your stack environment variables, set an `ACCESS_KEY`:
-   ```bash
-   ACCESS_KEY=my_secure_secret_token
-   ```
-2. Once set, the addon rejects all unauthorized requests with `401 Unauthorized`.
-3. Your protected Stremio manifest URL becomes:
-   ```text
-   https://<your-domain>/my_secure_secret_token/manifest.json
-   ```
-4. All stream resolution, master HLS playlists, and pre-fetched segments automatically inherit the secret token, giving seamless playback on Android TV, Desktop, and Web.
-5. If `ACCESS_KEY` is omitted or left empty, the addon runs in open/public mode.
+### How to Deploy via OCI Resource Manager:
+
+1. Log in to your [Oracle Cloud Console](https://cloud.oracle.com) and set region to **South Africa (Johannesburg)** (`af-johannesburg-1`).
+2. Open the navigation menu (☰) ➔ **Developer Services** ➔ **Resource Manager** ➔ **Stacks**.
+3. Click **Create Stack**.
+4. Under **Stack configuration**:
+   - Select **.ZIP file** and upload `movy-oci-stack.zip` (located in this repo).
+   - *Or* select **Source code control system** ➔ Git repository: `https://github.com/charlietrp77-cmd/movy-stremio-addon.git` (Working directory: `oci-resource-manager`).
+5. Click **Next**.
+6. In the UI form:
+   - **Secret Access Key:** Enter your chosen secret password (e.g. `mysecret889`).
+   - **Compartment:** Select your compartment (usually your root/default tenancy compartment).
+   - **SSH Public Key:** Optional (can be left blank).
+7. Click **Next** ➔ Check the box **Run apply** ➔ Click **Create**.
+8. OCI will automatically run the plan and apply. Within ~2-3 minutes, click **Outputs** on the left menu:
+   - Your `stremio_manifest_url` will be printed right on screen!
+   - Example: `https://129.151.77.20.sslip.io/mysecret889/manifest.json`.
 
 ---
 
-## ☁️ Deploy on Oracle Cloud (OCI) Always-Free (South Africa)
+## ☁️ Option B: Manual VM + 1-Click Script (deploy-oci.sh)
 
 Oracle Cloud provides **Always Free** ARM instances (up to 4 OCPUs, 24GB RAM, 10TB/month outbound bandwidth, and a free static IP) in Johannesburg (`af-johannesburg-1`).
 

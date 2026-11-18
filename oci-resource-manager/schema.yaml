@@ -1,0 +1,57 @@
+title: "Movy.sx Stremio Addon Stack"
+description: "Deploy the high-speed Movy.sx Stremio Addon with automated Let's Encrypt HTTPS (sslip.io) on Oracle Cloud Always-Free tier."
+schemaVersion: 1.1.0
+version: "20260218"
+
+variableGroups:
+  - title: "Addon & Security Configuration"
+    variables:
+      - ${access_key}
+      - ${compartment_ocid}
+      - ${ssh_public_key}
+  - title: "Instance Sizing (Always Free)"
+    visible: true
+    variables:
+      - ${instance_shape}
+      - ${ocpus}
+      - ${memory_in_gbs}
+
+variables:
+  access_key:
+    type: string
+    title: "Secret Access Key"
+    description: "Password/token to secure your addon so strangers cannot scrape or use your instance bandwidth."
+    required: true
+
+  compartment_ocid:
+    type: oci:identity:compartment:id
+    title: "Compartment"
+    description: "Select the OCI Compartment where you want to launch the addon."
+    required: true
+
+  ssh_public_key:
+    type: string
+    title: "SSH Public Key (Optional)"
+    description: "Your public SSH key string (e.g., ssh-rsa ...). Can be left blank."
+    required: false
+
+  instance_shape:
+    type: string
+    title: "Compute Shape"
+    description: "Instance shape. VM.Standard.A1.Flex is the Always-Free ARM Ampere shape."
+    default: "VM.Standard.A1.Flex"
+    required: true
+
+  ocpus:
+    type: number
+    title: "OCPUs (ARM)"
+    description: "Number of OCPUs (Up to 4 OCPUs are Always Free)."
+    default: 2
+    required: true
+
+  memory_in_gbs:
+    type: number
+    title: "RAM (GB)"
+    description: "Memory in GB (Up to 24 GB are Always Free)."
+    default: 12
+    required: true
