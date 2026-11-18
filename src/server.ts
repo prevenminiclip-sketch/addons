@@ -3,6 +3,7 @@ import { URL } from 'url';
 import { Readable } from 'stream';
 import { MovyProvider } from './provider';
 import { HlsAccelerator } from './hls-accelerator';
+import { fetchUpstream } from './upstream';
 
 const PORT = parseInt(process.env.PORT || '7000', 10);
 const ACCESS_KEY = (process.env.ACCESS_KEY || '').trim();
@@ -127,7 +128,7 @@ const server = http.createServer(async (req, res) => {
 
     // 1. Test db.wecollege.net
     try {
-      const metaRes = await fetch(`https://db.wecollege.net/3/find/${testId}?external_source=imdb_id`, {
+      const metaRes = await fetchUpstream(`https://db.wecollege.net/3/find/${testId}?external_source=imdb_id`, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Origin': 'https://www.movy.sx',
@@ -150,7 +151,7 @@ const server = http.createServer(async (req, res) => {
 
     // 2. Test api.wecollege.net/seed
     try {
-      const seedRes = await fetch(`https://api.wecollege.net/seed?mediaId=27205`, {
+      const seedRes = await fetchUpstream(`https://api.wecollege.net/seed?mediaId=27205`, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Origin': 'https://www.movy.sx',
@@ -229,13 +230,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      const upstreamRes = await fetch(targetUrl, { headers: upstreamHeaders });
+      const upstreamRes = await fetchUpstream(targetUrl, { headers: upstreamHeaders });
       if (!upstreamRes.ok && upstreamRes.status !== 206) {
+        console.warn(`[HLS Proxy Warning] Upstream returned ${upstreamRes.status} for ${targetUrl}`);
         res.writeHead(upstreamRes.status, { 'Access-Control-Allow-Origin': '*' });
         return res.end();
       }
 
-      const contentType = upstreamRes.headers.get('content-type') || '';
+      const contentType = (upstreamRes.headers['content-type'] as string) || '';
       const checkM3u8 = isM3u8 || contentType.includes('mpegurl');
 
       if (checkM3u8) {
@@ -305,21 +307,20 @@ const server = http.createServer(async (req, res) => {
         'Content-Type': contentType || 'video/mp4',
       };
 
-      const cl = upstreamRes.headers.get('content-length');
+      const cl = upstreamRes.headers['content-length'];
       if (cl) resHeaders['Content-Length'] = cl;
-      const cr = upstreamRes.headers.get('content-range');
+      const cr = upstreamRes.headers['content-range'];
       if (cr) resHeaders['Content-Range'] = cr;
-      const ar = upstreamRes.headers.get('accept-ranges');
+      const ar = upstreamRes.headers['accept-ranges'];
       if (ar) resHeaders['Accept-Ranges'] = ar;
 
       res.writeHead(upstreamRes.status, resHeaders);
 
-      if (upstreamRes.body) {
-        const stream = Readable.fromWeb(upstreamRes.body as any);
-        stream.pipe(res);
-      } else {
-        res.end();
-      }
+      res.on('close', () => {
+        upstreamRes.stream.destroy();
+      });
+
+      upstreamRes.stream.pipe(res);
       return;
     } catch (err: any) {
       console.error('[HLS Proxy Error]', err);

@@ -1,3 +1,5 @@
+import { fetchUpstream } from './upstream';
+
 /**
  * HLS Multi-Connection Stream Accelerator & Ahead-of-Time (AOT) Segment Prefetcher
  * 
@@ -127,19 +129,18 @@ export class HlsAccelerator {
   }
 
   /**
-   * Perform direct fetch with Movy headers
+   * Perform direct fetch with Movy headers via upstream tunnel
    */
   private async fetchSegmentDirect(url: string, rangeHeader?: string): Promise<{ data: Buffer; contentType: string } | null> {
     try {
       const reqHeaders = { ...this.headers };
       if (rangeHeader) reqHeaders['Range'] = rangeHeader;
 
-      const res = await fetch(url, { headers: reqHeaders });
+      const res = await fetchUpstream(url, { headers: reqHeaders, timeout: 15000 });
       if (!res.ok && res.status !== 206) return null;
 
-      const arrayBuf = await res.arrayBuffer();
-      const data = Buffer.from(arrayBuf);
-      const contentType = res.headers.get('content-type') || 'video/mp4';
+      const data = await res.buffer();
+      const contentType = (res.headers['content-type'] as string) || 'video/mp4';
 
       return { data, contentType };
     } catch (err) {

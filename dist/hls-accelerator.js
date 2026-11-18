@@ -1,15 +1,7 @@
 "use strict";
-/**
- * HLS Multi-Connection Stream Accelerator & Ahead-of-Time (AOT) Segment Prefetcher
- *
- * In HLS streaming, video is delivered in ~6-second discrete segments (.m4s / .ts).
- * This engine tracks the active media playlist, detects the playback position, and
- * opens 3-5 concurrent TCP streams to pre-fetch upcoming segments into a fast RAM buffer.
- * When the video player (ExoPlayer / Stremio) requests the next segment, it is served
- * instantly from local memory (0ms latency, gigabit LAN throughput).
- */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HlsAccelerator = void 0;
+const upstream_1 = require("./upstream");
 class HlsAccelerator {
     // Map of Segment URL -> Segment Index & Playlist Key
     segmentIndexMap = new Map();
@@ -109,19 +101,18 @@ class HlsAccelerator {
         this.pruneOldSegments(segments, meta.index);
     }
     /**
-     * Perform direct fetch with Movy headers
+     * Perform direct fetch with Movy headers via upstream tunnel
      */
     async fetchSegmentDirect(url, rangeHeader) {
         try {
             const reqHeaders = { ...this.headers };
             if (rangeHeader)
                 reqHeaders['Range'] = rangeHeader;
-            const res = await fetch(url, { headers: reqHeaders });
+            const res = await (0, upstream_1.fetchUpstream)(url, { headers: reqHeaders, timeout: 15000 });
             if (!res.ok && res.status !== 206)
                 return null;
-            const arrayBuf = await res.arrayBuffer();
-            const data = Buffer.from(arrayBuf);
-            const contentType = res.headers.get('content-type') || 'video/mp4';
+            const data = await res.buffer();
+            const contentType = res.headers['content-type'] || 'video/mp4';
             return { data, contentType };
         }
         catch (err) {
