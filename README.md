@@ -15,7 +15,8 @@ A completely self-contained stack with **Movy.sx Stremio Addon** and **Caddy** (
 
 ```text
 movy-stremio-addon/
-├── oci-resource-manager/       # OCI "CloudFormation" Stack (Terraform + schema.yaml)
+├── cloudformation.yaml         # Official AWS CloudFormation 1-Click Template (EC2 Free Tier)
+├── oci-resource-manager/       # OCI Resource Manager Stack (Terraform + schema.yaml)
 │   ├── main.tf                 # Complete VCN, Subnet, Security List, & VM provisioning
 │   ├── variables.tf            # Parametrized configuration (Access Key, Shape, RAM)
 │   ├── outputs.tf              # Outputs the final Stremio manifest URL
@@ -23,17 +24,55 @@ movy-stremio-addon/
 ├── movy-oci-stack.zip          # Ready-to-upload OCI Resource Manager stack package
 ├── docker-compose.yml          # Compose specification (localhost hardened)
 ├── portainer-stack.yml         # Portainer-ready Stack file
-├── Dockerfile                  # Multi-stage lightweight Movy Node.js build
+├── Dockerfile                  # Lightweight Node 20 standalone image (zero build overhead)
 ├── Dockerfile.caddy            # Dual-mode Caddy builder (sslip.io / DuckDNS)
 ├── entrypoint-caddy.sh         # Auto-SSL generator script
-├── deploy-oci.sh               # 1-Click OCI manual setup script
+├── deploy-oci.sh               # 1-Click manual setup script
 ├── .env.example                # Example configuration
 └── src/                        # Reversed cipher, HLS accelerator, & Stremio server
 ```
 
 ---
 
-## ☁️ Option A: OCI Resource Manager (CloudFormation Equivalent - 100% Automated)
+## ⚡ Option A: AWS CloudFormation (1-Click Deployment - Recommended)
+
+AWS Free Tier includes 750 hours/month of EC2 (`t3.micro`), and AWS has a dedicated **South Africa (Cape Town - `af-south-1`)** region with low local latency.
+
+Our CloudFormation template ([`cloudformation.yaml`](cloudformation.yaml)) handles **100% of the provisioning automatically**:
+- Dedicated isolated VPC, Public Subnet, Internet Gateway & Route Tables
+- Security Group with ports 80 & 443 open
+- Canonical Ubuntu 22.04 LTS EC2 instance (`t3.micro` Free Tier)
+- Auto-bootstrapping script: Installs Docker, configures `<PUBLIC_IP>.sslip.io`, acquires automated Let's Encrypt SSL, and starts the streaming stack
+- Direct **Outputs** tab in AWS Console showing your ready-to-use Stremio URL!
+
+### How to Deploy in AWS:
+
+1. Log into your [AWS Management Console](https://console.aws.amazon.com).
+2. In the top-right corner, select your desired region:
+   - **Africa (Cape Town)** `af-south-1` *(If prompted to enable the region in Account Settings, enable it)*
+   - *Or* any default region like **Europe (Frankfurt)** `eu-central-1` / **Europe (Ireland)** `eu-west-1`.
+3. In the search bar at the top, type **CloudFormation** and open it.
+4. Click **Create stack** ➔ **With new resources (standard)**.
+5. Under **Specify template**:
+   - Choose **Upload a template file**.
+   - Click **Choose file** and select [`cloudformation.yaml`](cloudformation.yaml) from this folder.
+   - Click **Next**.
+6. **Specify stack details**:
+   - **Stack name:** `movy-stremio-addon`
+   - **AccessKey:** Enter your secret token (e.g. `mysecret889`).
+   - Click **Next**.
+7. Click **Next** on Configure stack options ➔ Scroll to the bottom and click **Submit**.
+8. CloudFormation will display `CREATE_IN_PROGRESS` and turn to `CREATE_COMPLETE` in ~2 minutes.
+9. Click the **Outputs** tab of your stack:
+   - Copy your **`StremioManifestUrl`**:
+     ```text
+     https://<YOUR-AWS-IP>.sslip.io/mysecret889/manifest.json
+     ```
+10. Paste into Stremio and enjoy instant, smooth streaming!
+
+---
+
+## ☁️ Option B: OCI Resource Manager (Oracle Cloud)
 
 Oracle Cloud's direct equivalent of AWS CloudFormation is **OCI Resource Manager**. We've provided a complete Terraform stack (`movy-oci-stack.zip`) that automatically provisions everything in your Oracle account:
 - Dedicated VCN & Public Subnet
