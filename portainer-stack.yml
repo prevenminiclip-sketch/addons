@@ -1,53 +1,39 @@
 version: "3.8"
 
 # =============================================================================
-# Portainer Stack: Movy.sx Stremio Addon (Self-Contained with DuckDNS & Caddy)
+# Portainer Stack: Movy Stremio Addon (Stable Base)
+# Automatic DuckDNS DNS-01 SSL on port 443 (Port 80 untouched for Solar Assistant)
 # =============================================================================
 
 services:
   movy-stremio-addon:
     build:
-      context: .
-      dockerfile: Dockerfile
-    pull_policy: build
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.0.0-stable
     container_name: movy-stremio-addon
     restart: unless-stopped
-    ports:
-      # Bind only to localhost so external traffic MUST route securely through Caddy / HTTPS
-      - "127.0.0.1:${PORT:-7000}:7000"
+    network_mode: "host"
     environment:
       - PORT=7000
       - NODE_ENV=production
       - ACCESS_KEY=${ACCESS_KEY:-}
-    networks:
-      - movy_net
+      - SOCKS_PROXY=${SOCKS_PROXY:-}
 
   caddy:
     build:
-      context: .
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.0.0-stable
       dockerfile: Dockerfile.caddy
-    pull_policy: build
     container_name: movy-caddy-ssl
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "${CADDY_HTTPS_PORT:-443}:443"
+    network_mode: "host"
     environment:
-      - DOMAIN=${DOMAIN:-}
-      - DUCKDNS_DOMAIN=${DUCKDNS_DOMAIN:-}
+      - DOMAIN=${DOMAIN:-my-easynews-plus.duckdns.org}
       - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:-}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    networks:
-      - movy_net
     depends_on:
       - movy-stremio-addon
 
 volumes:
   caddy_data:
   caddy_config:
-
-networks:
-  movy_net:
-    driver: bridge
