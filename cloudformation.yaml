@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Deploy Movy.sx Stremio Addon with automated Let''s Encrypt HTTPS (sslip.io) on AWS EC2 Free Tier'
+Description: 'Deploy Movy.sx Stremio Addon with automated Let''s Encrypt HTTPS on AWS EC2 Free Tier'
 
 Parameters:
   AccessKey:
@@ -7,6 +7,17 @@ Parameters:
     Description: 'Secret token to protect your addon from unauthorized users & scrapers'
     Default: 'my_secret_token_2026'
     NoEcho: false
+
+  DuckDnsDomain:
+    Type: String
+    Description: 'Optional: Your DuckDNS domain (e.g. my-easynews-plus.duckdns.org). Leave blank to use automated sslip.io'
+    Default: ''
+
+  DuckDnsToken:
+    Type: String
+    Description: 'Optional: Your DuckDNS API Token from https://duckdns.org. Leave blank if not using DuckDNS'
+    Default: ''
+    NoEcho: true
 
   InstanceType:
     Type: String
@@ -22,6 +33,9 @@ Parameters:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Description: 'Auto-resolved latest Canonical Ubuntu 22.04 LTS AMI for the target region'
     Default: '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
+
+Conditions:
+  HasDuckDns: !Not [!Equals [!Ref DuckDnsDomain, '']]
 
 Resources:
   # 1. Isolated VPC
@@ -165,7 +179,7 @@ Resources:
           swapon /swapfile
           echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
-          # 3. Detect Public IPv4 & Configure Domain
+          # 3. Detect Public IPv4
           PUBLIC_IP=""
           for i in {1..10}; do
             PUBLIC_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me || echo "")
@@ -173,7 +187,18 @@ Resources:
             sleep 2
           done
 
-          if [ -n "$PUBLIC_IP" ]; then
+          # 4. Determine Domain (DuckDNS vs sslip.io)
+          DUCK_DOM="${DuckDnsDomain}"
+          DUCK_TOK="${DuckDnsToken}"
+
+          if [ -n "$DUCK_DOM" ]; then
+            DOMAIN="$DUCK_DOM"
+            if [ -n "$DUCK_TOK" ]; then
+              # Auto-update DuckDNS with this EC2 public IP
+              SUB=$(echo "$DUCK_DOM" | sed 's/\.duckdns\.org//')
+              curl -s "https://www.duckdns.org/update?domains=$SUB&token=$DUCK_TOK&ip=$PUBLIC_IP" || true
+            fi
+          elif [ -n "$PUBLIC_IP" ]; then
             DOMAIN="${!PUBLIC_IP}.sslip.io"
           else
             DOMAIN="localhost"
@@ -182,12 +207,12 @@ Resources:
           echo "Public IP: $PUBLIC_IP"
           echo "Configuring Domain: $DOMAIN"
 
-          # 4. Clone Addon Repository
+          # 5. Clone Addon Repository
           mkdir -p /opt/movy-stremio-addon
           cd /opt/movy-stremio-addon
           git clone https://github.com/charlietrp77-cmd/movy-stremio-addon.git .
 
-          # 5. Write Environment Configuration
+          # 6. Write Environment Configuration
           cat <<ENVEOF > .env
           DOMAIN=${!DOMAIN}
           ACCESS_KEY=${AccessKey}
@@ -195,7 +220,7 @@ Resources:
           CADDY_HTTPS_PORT=443
           ENVEOF
 
-          # 6. Start Containers
+          # 7. Start Containers
           docker compose up -d --build
 
           echo "=== Movy Addon Successfully Deployed ==="
@@ -207,8 +232,14 @@ Outputs:
 
   Hostname:
     Description: Automated SSL Hostname
-    Value: !Sub "https://${EC2Instance.PublicIp}.sslip.io"
+    Value: !If
+      - HasDuckDns
+      - !Sub "https://${DuckDnsDomain}"
+      - !Sub "https://${EC2Instance.PublicIp}.sslip.io"
 
   StremioManifestUrl:
     Description: "🎉 Protected Stremio Manifest URL - Copy and paste this directly into Stremio!"
-    Value: !Sub "https://${EC2Instance.PublicIp}.sslip.io/${AccessKey}/manifest.json"
+    Value: !If
+      - HasDuckDns
+      - !Sub "https://${DuckDnsDomain}/${AccessKey}/manifest.json"
+      - !Sub "https://${EC2Instance.PublicIp}.sslip.io/${AccessKey}/manifest.json"
