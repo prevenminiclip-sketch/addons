@@ -45,8 +45,8 @@ const accelerator = new hls_accelerator_1.HlsAccelerator();
 const MANIFEST = {
     id: 'org.cinestream.movysx',
     version: '1.0.0',
-    name: 'Movy.sx Streams',
-    description: 'High-speed direct HLS stream provider (4K / 1080p) from movy.sx / wecollege',
+    name: 'Movy',
+    description: 'Direct HLS stream provider (4K / 1080p) from movy.sx',
     resources: ['stream'],
     types: ['movie', 'series'],
     idPrefixes: ['tt', 'tmdb:'],

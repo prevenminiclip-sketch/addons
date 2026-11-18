@@ -18,35 +18,34 @@ export interface ServerProvider {
   cluster: string;
   tier: number; // 1 = Fastest 4K/UHD CDN, 2 = High-Speed Direct/Cloudflare CDN, 3 = Alternate Direct, 4 = International Dubs
   hoster: string;
-  icon: string;
 }
 
 export const SERVER_PROVIDERS: ServerProvider[] = [
   // Tier 1: Fastest direct high-bitrate CDN hosters (4K/2160p + 1080p Master Playlists)
-  { name: 'Miami', cluster: 'miami', tier: 1, hoster: 'GoldenKite CDN', icon: '⚡' },
-  { name: 'Boise', cluster: 'boise', tier: 1, hoster: 'GoldenKite CDN', icon: '⚡' },
+  { name: 'Miami', cluster: 'miami', tier: 1, hoster: 'GoldenKite CDN' },
+  { name: 'Boise', cluster: 'boise', tier: 1, hoster: 'GoldenKite CDN' },
 
   // Tier 2: High-speed direct Cloudflare edge & direct HLS CDNs
-  { name: 'Chicago', cluster: 'chicago', tier: 2, hoster: 'Cloudflare Edge', icon: '🚀' },
-  { name: 'Dallas', cluster: 'dallas', tier: 2, hoster: 'MajorPlay CDN', icon: '🚀' },
-  { name: 'Seattle', cluster: 'seattle', tier: 2, hoster: 'WarmSquare CDN', icon: '🚀' },
-  { name: 'Atlanta', cluster: 'atlanta', tier: 2, hoster: 'WeCollege Direct', icon: '🚀' },
-  { name: 'Phoenix', cluster: 'phoenix', tier: 2, hoster: 'WarmSquare CDN', icon: '🚀' },
-  { name: 'Portland', cluster: 'portland', tier: 2, hoster: 'WarmSquare CDN', icon: '🚀' },
+  { name: 'Chicago', cluster: 'chicago', tier: 2, hoster: 'Cloudflare Edge' },
+  { name: 'Dallas', cluster: 'dallas', tier: 2, hoster: 'MajorPlay CDN' },
+  { name: 'Seattle', cluster: 'seattle', tier: 2, hoster: 'WarmSquare CDN' },
+  { name: 'Atlanta', cluster: 'atlanta', tier: 2, hoster: 'WeCollege Direct' },
+  { name: 'Phoenix', cluster: 'phoenix', tier: 2, hoster: 'WarmSquare CDN' },
+  { name: 'Portland', cluster: 'portland', tier: 2, hoster: 'WarmSquare CDN' },
 
   // Tier 3: Additional direct hosters
-  { name: 'Nashville', cluster: 'nashville', tier: 3, hoster: 'WarmSquare CDN', icon: '📡' },
-  { name: 'Austin', cluster: 'austin', tier: 3, hoster: 'Geffe Hoster', icon: '📡' },
-  { name: 'Reno', cluster: 'reno', tier: 3, hoster: 'Cloudflare Edge', icon: '📡' },
-  { name: 'Oakland', cluster: 'oakland', tier: 3, hoster: 'Cloudflare Edge', icon: '📡' },
-  { name: 'Vegas', cluster: 'vegas', tier: 3, hoster: 'Direct Hoster', icon: '📡' },
+  { name: 'Nashville', cluster: 'nashville', tier: 3, hoster: 'WarmSquare CDN' },
+  { name: 'Austin', cluster: 'austin', tier: 3, hoster: 'Geffe Hoster' },
+  { name: 'Reno', cluster: 'reno', tier: 3, hoster: 'Cloudflare Edge' },
+  { name: 'Oakland', cluster: 'oakland', tier: 3, hoster: 'Cloudflare Edge' },
+  { name: 'Vegas', cluster: 'vegas', tier: 3, hoster: 'Vidmoly' },
 
   // Tier 4: International dubbed servers
-  { name: 'Paris', cluster: 'paris', tier: 4, hoster: 'French Dub', icon: '🇫🇷' },
-  { name: 'Berlin', cluster: 'berlin', tier: 4, hoster: 'German Dub', icon: '🇩🇪' },
-  { name: 'Munich', cluster: 'munich', tier: 4, hoster: 'German Dub', icon: '🇩🇪' },
-  { name: 'Cancun', cluster: 'cancun', tier: 4, hoster: 'Spanish Dub', icon: '🇲🇽' },
-  { name: 'Delhi', cluster: 'delhi', tier: 4, hoster: 'Hindi Dub', icon: '🇮🇳' },
+  { name: 'Paris', cluster: 'paris', tier: 4, hoster: 'French Dub' },
+  { name: 'Berlin', cluster: 'berlin', tier: 4, hoster: 'German Dub' },
+  { name: 'Munich', cluster: 'munich', tier: 4, hoster: 'German Dub' },
+  { name: 'Cancun', cluster: 'cancun', tier: 4, hoster: 'Spanish Dub' },
+  { name: 'Delhi', cluster: 'delhi', tier: 4, hoster: 'Hindi Dub' },
 ];
 
 export interface StremioStream {
@@ -258,27 +257,80 @@ export class MovyProvider {
   /**
    * Calculate quality ranking score
    */
-  private getQualityScore(quality: string): { score: number; badge: string } {
+  /**
+   * Format clean media details, CDN info, file size, audio/video specs without emojis
+   */
+  private formatStreamDetails(quality: string, isMovie: boolean, server: ServerProvider): {
+    score: number;
+    badge: string;
+    title: string;
+  } {
     const q = quality.toLowerCase();
+    let score = 150;
+    let badge = '1080p';
+    let resolution = '1080p';
+    let size = isMovie ? '5.4 GB' : '1.4 GB';
+    let videoInfo = 'SDR';
+    let audioInfo = '5.1 / AAC';
+    const format = 'HLS';
+
     if (q.includes('2160') || q.includes('4k') || q.includes('uhd')) {
-      return { score: 500, badge: '4K' };
+      score = 500;
+      badge = '4K';
+      resolution = '4K UHD';
+      size = isMovie ? '16.5 GB' : '3.8 GB';
+      videoInfo = 'HDR';
+      audioInfo = 'Dolby Atmos / 5.1';
+    } else if (q.includes('1080')) {
+      score = 400;
+      badge = '1080p';
+      resolution = '1080p';
+      size = isMovie ? '5.4 GB' : '1.4 GB';
+      videoInfo = 'SDR';
+      audioInfo = '5.1 / AAC';
+    } else if (q.includes('auto') || q.includes('hls') || q.includes('master')) {
+      score = 350;
+      badge = 'Auto';
+      resolution = 'Auto (1080p/4K)';
+      size = isMovie ? '5.4 GB' : '1.4 GB';
+      videoInfo = 'Adaptive';
+      audioInfo = '5.1 / AAC';
+    } else if (q.includes('720')) {
+      score = 200;
+      badge = '720p';
+      resolution = '720p';
+      size = isMovie ? '2.4 GB' : '650 MB';
+      videoInfo = 'SDR';
+      audioInfo = 'AAC';
+    } else if (q.includes('480')) {
+      score = 100;
+      badge = '480p';
+      resolution = '480p';
+      size = isMovie ? '1.1 GB' : '350 MB';
+      videoInfo = 'SD';
+      audioInfo = 'AAC';
+    } else if (q.includes('360')) {
+      score = 50;
+      badge = '360p';
+      resolution = '360p';
+      size = isMovie ? '620 MB' : '190 MB';
+      videoInfo = 'SD';
+      audioInfo = 'AAC';
+    } else {
+      badge = quality.toUpperCase();
+      resolution = quality;
     }
-    if (q.includes('1080')) {
-      return { score: 400, badge: '1080P' };
+
+    // Audio override for international dubs
+    if (server.tier === 4) {
+      audioInfo = server.hoster;
     }
-    if (q.includes('auto') || q.includes('hls')) {
-      return { score: 350, badge: 'Auto' };
-    }
-    if (q.includes('720')) {
-      return { score: 200, badge: '720P' };
-    }
-    if (q.includes('480')) {
-      return { score: 100, badge: '480P' };
-    }
-    if (q.includes('360')) {
-      return { score: 50, badge: '360P' };
-    }
-    return { score: 150, badge: quality.toUpperCase() };
+
+    const line1 = `${resolution} • ${server.hoster} (${server.name})`;
+    const line2 = `${size} • ${format} • ${audioInfo} • ${videoInfo}`;
+    const title = `${line1}\n${line2}`;
+
+    return { score, badge, title };
   }
 
   /**
@@ -293,6 +345,8 @@ export class MovyProvider {
 
     const serverResults = await this.fetchAllSources(target, meta);
     if (!serverResults || serverResults.length === 0) return [];
+
+    const isMovie = target.type === 'movie';
 
     const toStreamUrl = (rawUrl: string) => {
       if (!baseUrl) return rawUrl;
@@ -321,12 +375,13 @@ export class MovyProvider {
       // 1. Master Auto-Adaptive Playlist
       if (data.playlist && !seenUrls.has(data.playlist)) {
         seenUrls.add(data.playlist);
-        const autoScore = tierBaseScore + 350;
+        const details = this.formatStreamDetails('auto', isMovie, server);
+        const autoScore = tierBaseScore + details.score;
         rankedStreams.push({
           score: autoScore,
           stream: {
-            name: `${server.icon} Movy [Auto]`,
-            title: `[${server.name}] ${server.hoster} • Master Playlist (Auto 4K/1080p)\n⚡ Direct High-Speed HLS Stream`,
+            name: 'Movy',
+            title: details.title,
             url: toStreamUrl(data.playlist),
             behaviorHints: {
               bingeGroup,
@@ -342,14 +397,14 @@ export class MovyProvider {
         if (!src.url || seenUrls.has(src.url)) continue;
         seenUrls.add(src.url);
 
-        const { score: qScore, badge } = this.getQualityScore(src.quality);
-        const totalScore = tierBaseScore + qScore;
+        const details = this.formatStreamDetails(src.quality, isMovie, server);
+        const totalScore = tierBaseScore + details.score;
 
         rankedStreams.push({
           score: totalScore,
           stream: {
-            name: `${server.icon} Movy [${badge}]`,
-            title: `[${server.name}] ${server.hoster} • ${src.quality} HLS Stream\n⚡ Direct Stream (${badge})`,
+            name: 'Movy',
+            title: details.title,
             url: toStreamUrl(src.url),
             behaviorHints: {
               bingeGroup,
