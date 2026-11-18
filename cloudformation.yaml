@@ -108,7 +108,7 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: Allow HTTP for Let's Encrypt ACME
+          Description: Allow HTTP for Lets Encrypt ACME
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
