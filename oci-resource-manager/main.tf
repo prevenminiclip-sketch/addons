@@ -170,12 +170,12 @@ locals {
     git clone https://github.com/charlietrp77-cmd/movy-stremio-addon.git .
 
     # 5. Write Environment Configuration
-    cat <<ENVEOF > .env
-    DOMAIN=$${DOMAIN}
-    ACCESS_KEY=${var.access_key}
-    PORT=7000
-    CADDY_HTTPS_PORT=443
-    ENVEOF
+cat <<ENVEOF > .env
+DOMAIN=$${DOMAIN}
+ACCESS_KEY=${var.access_key}
+PORT=7000
+CADDY_HTTPS_PORT=443
+ENVEOF
 
     # 6. Start Docker Containers
     docker compose up -d --build
