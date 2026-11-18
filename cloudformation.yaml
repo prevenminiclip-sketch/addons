@@ -213,14 +213,12 @@ Resources:
           git clone https://github.com/charlietrp77-cmd/movy-stremio-addon.git .
 
           # 6. Write Environment Configuration
-cat <<ENVEOF > .env
-DOMAIN=${!DOMAIN}
-DUCKDNS_DOMAIN=${DuckDnsDomain}
-DUCKDNS_TOKEN=${DuckDnsToken}
-ACCESS_KEY=${AccessKey}
-PORT=7000
-CADDY_HTTPS_PORT=443
-ENVEOF
+          echo "DOMAIN=${!DOMAIN}" > .env
+          echo "DUCKDNS_DOMAIN=${DuckDnsDomain}" >> .env
+          echo "DUCKDNS_TOKEN=${DuckDnsToken}" >> .env
+          echo "ACCESS_KEY=${AccessKey}" >> .env
+          echo "PORT=7000" >> .env
+          echo "CADDY_HTTPS_PORT=443" >> .env
 
           # 7. Start Containers
           docker compose up -d --build
