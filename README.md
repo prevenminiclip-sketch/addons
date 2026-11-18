@@ -72,43 +72,16 @@ volumes:
 
 ---
 
-### Method 2: Plain HTTP (No Domain / No SSL Required)
-
-If you only use Stremio on your home Wi-Fi (Android TV, Firestick, PC, or mobile app), Stremio natively supports plain HTTP without needing a domain or SSL:
-
-```yaml
-version: "3.8"
-
-services:
-  movy-stremio-addon:
-    build:
-      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.0.0-stable
-    container_name: movy-stremio-addon
-    restart: unless-stopped
-    ports:
-      - "7000:7000"
-    environment:
-      - PORT=7000
-      - NODE_ENV=production
-```
-
----
-
 ## 📺 Adding Movy to Stremio
 
-Paste your manifest URL directly into the search bar at the top of Stremio:
+> **Important:** Stremio **requires HTTPS** for all custom addons to ensure secure installation, playback compatibility, and cross-device account syncing (Stremio Web, Android TV, Firestick, Desktop, and Mobile).
 
-* **With DuckDNS HTTPS (Port 443):**
-  ```text
-  https://my-domain.duckdns.org/movy/manifest.json
-  ```
-  *(or `https://my-domain.duckdns.org/manifest.json`)*
+Paste your HTTPS manifest URL directly into the search bar at the top of Stremio:
 
-* **With Local LAN HTTP (Port 7000):**
-  ```text
-  http://<YOUR_LOCAL_IP>:7000/manifest.json
-  ```
-  *(Example: `http://192.168.1.50:7000/manifest.json`)*
+```text
+https://my-domain.duckdns.org/movy/manifest.json
+```
+*(or `https://my-domain.duckdns.org/manifest.json`)*
 
 Click **Install**.
 

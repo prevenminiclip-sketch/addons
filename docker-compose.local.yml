@@ -1,5 +1,10 @@
 version: "3.8"
 
+# =============================================================================
+# Local Portainer / Docker Compose: Movy Stremio Addon
+# Full DuckDNS DNS-01 HTTPS on Port 443 (Port 80 untouched)
+# =============================================================================
+
 services:
   movy-stremio-addon:
     build:
@@ -7,11 +12,29 @@ services:
       dockerfile: Dockerfile
     container_name: movy-stremio-addon
     restart: unless-stopped
-    ports:
-      - "7000:7000"
+    network_mode: "host"
     environment:
       - PORT=7000
       - NODE_ENV=production
       - ACCESS_KEY=${ACCESS_KEY:-}
-      # On residential/home IP, no SOCKS proxy is needed (leave empty for direct connection)
       - SOCKS_PROXY=${SOCKS_PROXY:-}
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    container_name: movy-caddy-ssl
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      - DOMAIN=${DOMAIN:-my-easynews-plus.duckdns.org}
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:-}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - movy-stremio-addon
+
+volumes:
+  caddy_data:
+  caddy_config:
