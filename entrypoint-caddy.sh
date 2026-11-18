@@ -8,14 +8,14 @@ if [ "$TARGET_DOMAIN" != ":80" ]; then
     echo "[Caddy] Configuring automatic Let's Encrypt HTTPS for domain: ${TARGET_DOMAIN}"
     cat <<EOF > /etc/caddy/Caddyfile
 ${TARGET_DOMAIN} {
-    reverse_proxy movy-stremio-addon:7000
+    reverse_proxy 127.0.0.1:7000
 }
 EOF
 else
     echo "[Caddy] No domain provided, running on plain HTTP :80"
     cat <<EOF > /etc/caddy/Caddyfile
 :80 {
-    reverse_proxy movy-stremio-addon:7000
+    reverse_proxy 127.0.0.1:7000
 }
 EOF
 fi

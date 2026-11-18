@@ -1,4 +1,149 @@
+import * as net from 'net';
+import * as tls from 'tls';
+import * as https from 'https';
 import { decryptMovyPayload } from './crypto';
+
+const SOCKS_PROXY = (process.env.SOCKS_PROXY || '').trim();
+
+export interface FetchApiResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  json: () => Promise<any>;
+  text: () => Promise<string>;
+}
+
+function socks5Request(urlStr: string, options: { headers?: Record<string, string>; timeout?: number } = {}): Promise<FetchApiResponse> {
+  return new Promise((resolve, reject) => {
+    const targetUrl = new URL(urlStr);
+    const targetHost = targetUrl.hostname;
+    const targetPort = targetUrl.port ? parseInt(targetUrl.port, 10) : 443;
+    const isHttps = targetUrl.protocol === 'https:';
+
+    const [proxyHost, proxyPortStr] = SOCKS_PROXY.replace(/^socks5h?:\/\//i, '').split(':');
+    const proxyPort = parseInt(proxyPortStr || '40000', 10);
+
+    const timeoutMs = options.timeout || 8000;
+    let timer: NodeJS.Timeout | null = setTimeout(() => {
+      if (rawSocket) rawSocket.destroy();
+      reject(new Error(`SOCKS5 request to ${targetHost} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    let rawSocket: net.Socket;
+
+    try {
+      rawSocket = net.connect(proxyPort, proxyHost || '127.0.0.1', () => {
+        // Step 1: Send SOCKS5 greeting (VER=5, NMETHODS=1, METHOD=0)
+        rawSocket.write(Buffer.from([0x05, 0x01, 0x00]));
+      });
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      return reject(err);
+    }
+
+    let handshakeState = 0;
+
+    rawSocket.on('data', (chunk) => {
+      if (handshakeState === 0) {
+        if (chunk[0] !== 0x05 || chunk[1] !== 0x00) {
+          if (timer) clearTimeout(timer);
+          rawSocket.destroy();
+          return reject(new Error('SOCKS5 proxy authentication rejected'));
+        }
+        handshakeState = 1;
+        // Step 2: SOCKS5 connect request (ATYP 3 = domain name)
+        const hostBuf = Buffer.from(targetHost, 'utf8');
+        const reqBuf = Buffer.alloc(4 + 1 + hostBuf.length + 2);
+        reqBuf[0] = 0x05;
+        reqBuf[1] = 0x01; // CONNECT
+        reqBuf[2] = 0x00; // Reserved
+        reqBuf[3] = 0x03; // DOMAIN
+        reqBuf[4] = hostBuf.length;
+        hostBuf.copy(reqBuf, 5);
+        reqBuf.writeUInt16BE(targetPort, 5 + hostBuf.length);
+        rawSocket.write(reqBuf);
+      } else if (handshakeState === 1) {
+        if (chunk[0] !== 0x05 || chunk[1] !== 0x00) {
+          if (timer) clearTimeout(timer);
+          rawSocket.destroy();
+          return reject(new Error(`SOCKS5 connection to ${targetHost} failed: status ${chunk[1]}`));
+        }
+        // Handshake complete! Detach listeners from rawSocket
+        rawSocket.removeAllListeners('data');
+        rawSocket.removeAllListeners('error');
+
+        const transportSocket = isHttps
+          ? tls.connect({ socket: rawSocket, servername: targetHost })
+          : rawSocket;
+
+        const req = https.request({
+          hostname: targetHost,
+          port: targetPort,
+          path: targetUrl.pathname + targetUrl.search,
+          method: 'GET',
+          headers: options.headers,
+          createConnection: () => transportSocket,
+        }, (res) => {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (d) => chunks.push(d));
+          res.on('end', () => {
+            const bodyBuffer = Buffer.concat(chunks);
+            const bodyText = bodyBuffer.toString('utf8');
+            resolve({
+              ok: (res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300,
+              status: res.statusCode || 0,
+              statusText: res.statusMessage || '',
+              text: async () => bodyText,
+              json: async () => JSON.parse(bodyText),
+            });
+          });
+        });
+
+        req.on('error', (err) => {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          reject(err);
+        });
+
+        req.end();
+      }
+    });
+
+    rawSocket.on('error', (err) => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      reject(err);
+    });
+  });
+}
+
+export async function fetchApi(url: string, options: { headers?: Record<string, string>; timeout?: number } = {}): Promise<FetchApiResponse> {
+  if (SOCKS_PROXY) {
+    try {
+      return await socks5Request(url, options);
+    } catch (err: any) {
+      console.warn(`[Proxy Fallback] SOCKS proxy failed for ${url}: ${err.message}. Retrying direct...`);
+    }
+  }
+
+  const signal = options.timeout ? AbortSignal.timeout(options.timeout) : undefined;
+  const res = await fetch(url, { headers: options.headers, signal });
+  return {
+    ok: res.ok,
+    status: res.status,
+    statusText: res.statusText,
+    text: () => res.text(),
+    json: () => res.json(),
+  };
+}
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -98,7 +243,7 @@ export class MovyProvider {
 
     if (target.imdbId) {
       const url = `https://db.wecollege.net/3/find/${target.imdbId}?external_source=imdb_id`;
-      const res = await fetch(url, { headers: HEADERS });
+      const res = await fetchApi(url, { headers: HEADERS });
       if (!res.ok) return null;
       const data: any = await res.json();
 
@@ -126,7 +271,7 @@ export class MovyProvider {
     if (target.tmdbId) {
       const endpoint = isMovie ? 'movie' : 'tv';
       const url = `https://db.wecollege.net/3/${endpoint}/${target.tmdbId}?append_to_response=external_ids`;
-      const res = await fetch(url, { headers: HEADERS });
+      const res = await fetchApi(url, { headers: HEADERS });
       if (!res.ok) return null;
       const item: any = await res.json();
 
@@ -146,7 +291,7 @@ export class MovyProvider {
    */
   async getSeed(tmdbId: number): Promise<string> {
     const url = `https://api.wecollege.net/seed?mediaId=${tmdbId}`;
-    const res = await fetch(url, { headers: HEADERS });
+    const res = await fetchApi(url, { headers: HEADERS });
     if (!res.ok) {
       throw new Error(`Failed to fetch seed from api.wecollege.net (HTTP ${res.status})`);
     }
@@ -182,7 +327,7 @@ export class MovyProvider {
     const promises = SERVER_PROVIDERS.map(async (server) => {
       try {
         const clusterUrl = `https://api.wecollege.net/${server.cluster}/sources?${query}`;
-        const res = await fetch(clusterUrl, { headers: HEADERS, signal: AbortSignal.timeout(3500) });
+        const res = await fetchApi(clusterUrl, { headers: HEADERS, timeout: 3500 });
         if (!res.ok) return null;
 
         const cipherText = await res.text();

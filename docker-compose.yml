@@ -5,29 +5,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    pull_policy: build
     container_name: movy-stremio-addon
     restart: unless-stopped
-    ports:
-      # Bind only to localhost so external traffic MUST route securely through Caddy / HTTPS
-      - "127.0.0.1:${PORT:-7000}:7000"
+    network_mode: "host"
     environment:
       - PORT=7000
       - NODE_ENV=production
       - ACCESS_KEY=${ACCESS_KEY:-}
-    networks:
-      - movy_net
+      - SOCKS_PROXY=${SOCKS_PROXY:-127.0.0.1:40000}
 
   caddy:
     build:
       context: .
       dockerfile: Dockerfile.caddy
-    pull_policy: build
     container_name: movy-caddy-ssl
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "${CADDY_HTTPS_PORT:-443}:443"
+    network_mode: "host"
     environment:
       - DOMAIN=${DOMAIN:-}
       - DUCKDNS_DOMAIN=${DUCKDNS_DOMAIN:-}
@@ -35,15 +28,9 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    networks:
-      - movy_net
     depends_on:
       - movy-stremio-addon
 
 volumes:
   caddy_data:
   caddy_config:
-
-networks:
-  movy_net:
-    driver: bridge
