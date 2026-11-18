@@ -1,10 +1,15 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json tsconfig.json ./
+COPY src ./src
+RUN npm install && npm run build
+
+FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=7000
 
-# Pre-compiled standalone JavaScript - zero npm build overhead
-COPY dist ./dist
+COPY --from=builder /app/dist ./dist
 
 EXPOSE 7000
 
