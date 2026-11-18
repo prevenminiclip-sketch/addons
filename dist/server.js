@@ -46,7 +46,7 @@ const MANIFEST = {
     id: 'org.cinestream.movysx',
     version: '1.0.0',
     name: 'Movy',
-    description: 'Direct HLS stream provider (4K / 1080p) from movy.sx',
+    description: 'Movy',
     resources: ['stream'],
     types: ['movie', 'series'],
     idPrefixes: ['tt', 'tmdb:'],
