@@ -12,7 +12,7 @@ services:
       - PORT=7000
       - NODE_ENV=production
       - ACCESS_KEY=${ACCESS_KEY:-}
-      - SOCKS_PROXY=${SOCKS_PROXY:-127.0.0.1:40000}
+      - SOCKS_PROXY=${SOCKS_PROXY:-}
 
   caddy:
     build:
