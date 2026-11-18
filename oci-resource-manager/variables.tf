@@ -17,8 +17,8 @@ variable "ssh_public_key" {
 
 variable "instance_shape" {
   type        = string
-  description = "OCI Compute shape (Always Free: VM.Standard.A1.Flex or VM.Standard.E2.1.Micro)."
-  default     = "VM.Standard.A1.Flex"
+  description = "OCI Compute shape (Always Free: VM.Standard.E2.1.Micro or VM.Standard.A1.Flex)."
+  default     = "VM.Standard.E2.1.Micro"
 }
 
 variable "ocpus" {

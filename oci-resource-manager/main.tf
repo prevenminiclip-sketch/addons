@@ -130,7 +130,17 @@ locals {
     which netfilter-persistent && netfilter-persistent save || true
     which ufw && ufw allow 80/tcp && ufw allow 443/tcp || true
 
-    # 2. Install Docker
+    # 2. Setup 1GB Swap for low-RAM shapes (e.g. VM.Standard.E2.1.Micro)
+    TOTAL_MEM=$(free -m | awk '/^Mem:/{print $2}')
+    if [ "$TOTAL_MEM" -le 1500 ] && [ ! -f /swapfile ]; then
+      fallocate -l 1G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=1024
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+
+    # 3. Install Docker
     if ! which docker; then
       curl -fsSL https://get.docker.com | sh
       systemctl enable docker

@@ -36,10 +36,13 @@ variables:
     required: false
 
   instance_shape:
-    type: string
+    type: enum
     title: "Compute Shape"
-    description: "Instance shape. VM.Standard.A1.Flex is the Always-Free ARM Ampere shape."
-    default: "VM.Standard.A1.Flex"
+    description: "VM.Standard.E2.1.Micro (AMD) has guaranteed capacity. VM.Standard.A1.Flex (ARM) is faster but subject to data center capacity."
+    default: "VM.Standard.E2.1.Micro"
+    enum:
+      - "VM.Standard.E2.1.Micro"
+      - "VM.Standard.A1.Flex"
     required: true
 
   ocpus:
