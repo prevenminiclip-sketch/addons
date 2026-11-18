@@ -114,6 +114,75 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, MANIFEST);
   }
 
+  // Debug diagnostic endpoint
+  if (normalizedPath === '/debug') {
+    const testId = parsedUrl.searchParams.get('id') || 'tt1375666';
+    const testType = (parsedUrl.searchParams.get('type') || 'movie') as 'movie' | 'series';
+    const diagnostics: any = {
+      timestamp: new Date().toISOString(),
+      testId,
+      testType,
+      nodeVersion: process.version,
+    };
+
+    // 1. Test db.wecollege.net
+    try {
+      const metaRes = await fetch(`https://db.wecollege.net/3/find/${testId}?external_source=imdb_id`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': 'https://www.movy.sx',
+          'Referer': 'https://www.movy.sx/',
+        },
+      });
+      diagnostics.metadataFetch = {
+        status: metaRes.status,
+        statusText: metaRes.statusText,
+        ok: metaRes.ok,
+      };
+      if (metaRes.ok) {
+        diagnostics.metadataJson = await metaRes.json();
+      } else {
+        diagnostics.metadataBody = await metaRes.text();
+      }
+    } catch (err: any) {
+      diagnostics.metadataError = err.message || String(err);
+    }
+
+    // 2. Test api.wecollege.net/seed
+    try {
+      const seedRes = await fetch(`https://api.wecollege.net/seed?mediaId=27205`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': 'https://www.movy.sx',
+          'Referer': 'https://www.movy.sx/',
+        },
+      });
+      diagnostics.seedFetch = {
+        status: seedRes.status,
+        statusText: seedRes.statusText,
+        ok: seedRes.ok,
+      };
+      if (seedRes.ok) {
+        diagnostics.seedJson = await seedRes.json();
+      } else {
+        diagnostics.seedBody = await seedRes.text();
+      }
+    } catch (err: any) {
+      diagnostics.seedError = err.message || String(err);
+    }
+
+    // 3. Test full getStreams
+    try {
+      const streams = await provider.getStreams(testType, testId, `http://localhost:${PORT}`);
+      diagnostics.streamsCount = streams.length;
+      diagnostics.firstStream = streams[0] || null;
+    } catch (err: any) {
+      diagnostics.streamsError = err.message || String(err);
+    }
+
+    return sendJson(res, 200, diagnostics);
+  }
+
   // HLS Stream & Segment Proxy Endpoint with Multi-Stream Accelerator
   if (normalizedPath.startsWith('/proxy/hls')) {
     const encoded = parsedUrl.searchParams.get('d');
