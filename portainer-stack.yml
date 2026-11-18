@@ -30,10 +30,12 @@ services:
     container_name: movy-caddy-ssl
     restart: unless-stopped
     ports:
+      - "80:80"
       - "${CADDY_HTTPS_PORT:-443}:443"
     environment:
-      - DUCKDNS_DOMAIN=${DUCKDNS_DOMAIN:-my-easynews-plus.duckdns.org}
-      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
+      - DOMAIN=${DOMAIN:-}
+      - DUCKDNS_DOMAIN=${DUCKDNS_DOMAIN:-}
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:-}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
