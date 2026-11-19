@@ -35,16 +35,17 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const http = __importStar(require("http"));
 const url_1 = require("url");
-const provider_1 = require("./provider");
+const providers_1 = require("./providers");
+const metadata_1 = require("./metadata");
 const hls_accelerator_1 = require("./hls-accelerator");
 const upstream_1 = require("./upstream");
 const PORT = parseInt(process.env.PORT || '7000', 10);
 const ACCESS_KEY = (process.env.ACCESS_KEY || '').trim();
-const provider = new provider_1.MovyProvider();
+const providerManager = new providers_1.ProviderManager();
 const accelerator = new hls_accelerator_1.HlsAccelerator();
 const MANIFEST = {
     id: 'org.cinestream.movysx',
-    version: '1.0.0',
+    version: '1.1.0',
     name: 'Movy',
     description: 'Movy',
     resources: ['stream'],
@@ -123,7 +124,7 @@ const server = http.createServer(async (req, res) => {
         const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
         return sendJson(res, 200, {
             status: 'ok',
-            service: 'Movy.sx Stremio Addon',
+            service: 'Movy Multi-Source Stremio Addon',
             version: MANIFEST.version,
             manifest: `${keyPrefix}/manifest.json`,
             authenticated: !!ACCESS_KEY,
@@ -143,62 +144,20 @@ const server = http.createServer(async (req, res) => {
             testType,
             nodeVersion: process.version,
         };
-        // 1. Test db.wecollege.net
         try {
-            const metaRes = await (0, upstream_1.fetchUpstream)(`https://db.wecollege.net/3/find/${testId}?external_source=imdb_id`, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Origin': 'https://www.movy.sx',
-                    'Referer': 'https://www.movy.sx/',
-                },
-            });
-            diagnostics.metadataFetch = {
-                status: metaRes.status,
-                statusText: metaRes.statusText,
-                ok: metaRes.ok,
-            };
-            if (metaRes.ok) {
-                diagnostics.metadataJson = await metaRes.json();
-            }
-            else {
-                diagnostics.metadataBody = await metaRes.text();
-            }
-        }
-        catch (err) {
-            diagnostics.metadataError = err.message || String(err);
-        }
-        // 2. Test api.wecollege.net/seed
-        try {
-            const seedRes = await (0, upstream_1.fetchUpstream)(`https://api.wecollege.net/seed?mediaId=27205`, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Origin': 'https://www.movy.sx',
-                    'Referer': 'https://www.movy.sx/',
-                },
-            });
-            diagnostics.seedFetch = {
-                status: seedRes.status,
-                statusText: seedRes.statusText,
-                ok: seedRes.ok,
-            };
-            if (seedRes.ok) {
-                diagnostics.seedJson = await seedRes.json();
-            }
-            else {
-                diagnostics.seedBody = await seedRes.text();
-            }
-        }
-        catch (err) {
-            diagnostics.seedError = err.message || String(err);
-        }
-        // 3. Test full getStreams
-        try {
-            const streams = await provider.getStreams(testType, testId, `http://localhost:${PORT}`);
+            const target = (0, metadata_1.parseStremioId)(testType, testId);
+            const meta = await (0, metadata_1.resolveMetadata)(target);
+            diagnostics.resolvedMetadata = meta;
+            const proto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
+            const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
+            const baseUrl = `${proto}://${host}`;
+            const streams = await providerManager.getStreams(target, baseUrl, ACCESS_KEY);
             diagnostics.streamsCount = streams.length;
+            diagnostics.providersSummary = streams.map((s) => s.name);
             diagnostics.firstStream = streams[0] || null;
         }
         catch (err) {
-            diagnostics.streamsError = err.message || String(err);
+            diagnostics.error = err.message || String(err);
         }
         return sendJson(res, 200, diagnostics);
     }
@@ -217,11 +176,21 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(400, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
             return res.end('Invalid encoding');
         }
+        const rawRef = parsedUrl.searchParams.get('ref');
+        let customReferer;
+        if (rawRef) {
+            try {
+                customReferer = Buffer.from(rawRef, 'base64url').toString('utf8');
+            }
+            catch {
+                customReferer = rawRef;
+            }
+        }
         const isM3u8 = targetUrl.includes('.m3u8') || normalizedPath.endsWith('.m3u8');
         const rangeHeader = req.headers['range'];
         // Fast-path: Check HLS Multi-Stream Accelerator Cache for video segments (.m4s, .ts)
         if (!isM3u8) {
-            const cached = await accelerator.getSegment(targetUrl, rangeHeader);
+            const cached = await accelerator.getSegment(targetUrl, rangeHeader, customReferer);
             if (cached) {
                 res.writeHead(200, {
                     'Access-Control-Allow-Origin': '*',
@@ -234,11 +203,7 @@ const server = http.createServer(async (req, res) => {
                 return res.end(cached.data);
             }
         }
-        const upstreamHeaders = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Origin': 'https://www.movy.sx',
-            'Referer': 'https://www.movy.sx/',
-        };
+        const upstreamHeaders = accelerator.getHeadersForUrl(targetUrl, customReferer);
         if (rangeHeader) {
             upstreamHeaders['Range'] = rangeHeader;
         }
@@ -249,7 +214,7 @@ const server = http.createServer(async (req, res) => {
                 res.writeHead(upstreamRes.status, { 'Access-Control-Allow-Origin': '*' });
                 return res.end();
             }
-            const contentType = upstreamRes.headers['content-type'] || '';
+            let contentType = upstreamRes.headers['content-type'] || '';
             const checkM3u8 = isM3u8 || contentType.includes('mpegurl');
             if (checkM3u8) {
                 const text = await upstreamRes.text();
@@ -258,6 +223,7 @@ const server = http.createServer(async (req, res) => {
                 const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
                 const proxyBase = `${proto}://${host}${keyPrefix}`;
                 const keyQuery = ACCESS_KEY ? `&k=${encodeURIComponent(ACCESS_KEY)}` : '';
+                const refQuery = rawRef ? `&ref=${encodeURIComponent(rawRef)}` : '';
                 // If this is a media playlist with segment chunks, register for multi-stream prefetching
                 if (text.includes('#EXTINF:')) {
                     const segmentUrls = [];
@@ -270,7 +236,9 @@ const server = http.createServer(async (req, res) => {
                     }
                     accelerator.registerPlaylist(targetUrl, segmentUrls);
                 }
-                const rewritten = text.split('\n').map(line => {
+                const rewritten = text
+                    .split('\n')
+                    .map((line) => {
                     const trimmed = line.trim();
                     if (!trimmed)
                         return line;
@@ -279,7 +247,7 @@ const server = http.createServer(async (req, res) => {
                         if (match) {
                             const absUri = new url_1.URL(match[1], targetUrl).toString();
                             const enc = Buffer.from(absUri, 'utf8').toString('base64url');
-                            return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}${keyQuery}"`;
+                            return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}${refQuery}${keyQuery}"`;
                         }
                         return line;
                     }
@@ -289,13 +257,14 @@ const server = http.createServer(async (req, res) => {
                     // Sub-playlists must always be proxied with .m3u8 extension for ExoPlayer
                     if (absUrl.includes('.m3u8')) {
                         const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
-                        return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}${keyQuery}`;
+                        return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}${refQuery}${keyQuery}`;
                     }
                     // Route media segments through the multi-connection accelerator proxy
                     const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
                     const segExt = absUrl.includes('.m4s') ? 'seg.m4s' : 'seg.ts';
-                    return `${proxyBase}/proxy/hls/${segExt}?d=${enc}${keyQuery}`;
-                }).join('\n');
+                    return `${proxyBase}/proxy/hls/${segExt}?d=${enc}${refQuery}${keyQuery}`;
+                })
+                    .join('\n');
                 res.writeHead(200, {
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Access-Control-Allow-Origin': '*',
@@ -304,11 +273,15 @@ const server = http.createServer(async (req, res) => {
                 });
                 return res.end(rewritten);
             }
+            // Fix spoofed image content-types (e.g. image/png on SlowCloud)
+            if (!contentType || contentType.includes('image') || contentType.includes('octet-stream')) {
+                contentType = targetUrl.includes('.ts') ? 'video/mp2t' : 'video/mp4';
+            }
             // Stream media segment directly from upstream if not in accelerator cache
             const resHeaders = {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Headers': '*',
-                'Content-Type': contentType || 'video/mp4',
+                'Content-Type': contentType,
             };
             const cl = upstreamRes.headers['content-length'];
             if (cl)
@@ -343,8 +316,9 @@ const server = http.createServer(async (req, res) => {
             const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
             const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
             const baseUrl = `${proto}://${host}${keyPrefix}`;
-            const streams = await provider.getStreams(type, rawId, baseUrl, ACCESS_KEY);
-            console.log(`[Stream Response] Found ${streams.length} stream(s) for ${rawId}`);
+            const target = (0, metadata_1.parseStremioId)(type, rawId);
+            const streams = await providerManager.getStreams(target, baseUrl, ACCESS_KEY);
+            console.log(`[Stream Response] Returning total ${streams.length} stream(s) for ${rawId}`);
             return sendJson(res, 200, { streams });
         }
         catch (err) {
@@ -357,8 +331,9 @@ const server = http.createServer(async (req, res) => {
 });
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`====================================================`);
-    console.log(`🚀 Movy.sx Stremio Addon Server running on port ${PORT}`);
-    console.log(`⚡ HLS Multi-Stream Accelerator: Active (4 concurrent prefetch streams)`);
+    console.log(`🚀 Movy Multi-Source Stremio Addon Server running on port ${PORT}`);
+    console.log(`⚡ Active Providers: Movy (Primary), Hexa 4K, MovieBox, Rivestream`);
+    console.log(`⚡ HLS Multi-Stream Accelerator: Active`);
     if (ACCESS_KEY) {
         console.log(`🔒 Secret Access Token: Enabled`);
         console.log(`👉 Protected Manifest URL: http://localhost:${PORT}/${ACCESS_KEY}/manifest.json`);

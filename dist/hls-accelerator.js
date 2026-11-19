@@ -13,13 +13,46 @@ class HlsAccelerator {
     inFlight = new Map();
     // Configuration
     prefetchAhead = 4; // Fetch next 4 segments ahead in parallel (~24 seconds of video)
-    maxCacheItems = 16; // Keep max 16 segments in RAM (~80-100 MB max)
+    maxCacheItems = 24; // Keep max 24 segments in RAM (~120 MB max)
     ttlMs = 2 * 60 * 1000; // 2 minutes TTL per segment
-    headers = {
+    defaultHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Origin': 'https://www.movy.sx',
         'Referer': 'https://www.movy.sx/',
     };
+    /**
+     * Determine the appropriate Origin and Referer headers based on segment destination
+     */
+    getHeadersForUrl(url, customReferer) {
+        const h = { ...this.defaultHeaders };
+        if (customReferer) {
+            try {
+                h['Referer'] = customReferer;
+                h['Origin'] = new URL(customReferer).origin;
+            }
+            catch {
+                h['Referer'] = customReferer;
+            }
+            return h;
+        }
+        if (url.includes('dragonballzfans.xyz')) {
+            h['Origin'] = 'https://hexa.su';
+            h['Referer'] = 'https://hexa.su/';
+        }
+        else if (url.includes('slowcloud.live') ||
+            url.includes('vercetti.org') ||
+            url.includes('nexcloud.live') ||
+            url.includes('concretemiracle.lol')) {
+            h['Origin'] = 'https://vidrock.to';
+            h['Referer'] = 'https://vidrock.to/';
+        }
+        else if (url.includes('img1.hscow.com') || url.includes('kkphimplayer7.com')) {
+            // Direct open CDNs do not require specific referers
+            delete h['Referer'];
+            delete h['Origin'];
+        }
+        return h;
+    }
     /**
      * Register an M3U8 playlist and map its ordered segments for prefetching
      */
@@ -37,14 +70,13 @@ class HlsAccelerator {
     /**
      * Get a segment from cache or download it immediately, and trigger background prefetching
      */
-    async getSegment(url, rangeHeader) {
+    async getSegment(url, rangeHeader, customReferer) {
         const now = Date.now();
         // 1. Check if already in cache and not expired (only for full segments without range)
         if (!rangeHeader && this.cache.has(url)) {
             const entry = this.cache.get(url);
             if (now - entry.fetchedAt < this.ttlMs) {
-                // Trigger prefetching for next segments based on cache hit
-                this.triggerPrefetch(url);
+                this.triggerPrefetch(url, customReferer);
                 return { data: entry.data, contentType: entry.contentType };
             }
             else {
@@ -55,22 +87,22 @@ class HlsAccelerator {
         if (!rangeHeader && this.inFlight.has(url)) {
             const result = await this.inFlight.get(url);
             if (result) {
-                this.triggerPrefetch(url);
+                this.triggerPrefetch(url, customReferer);
                 return { data: result.data, contentType: result.contentType };
             }
         }
         // 3. Download segment directly
-        const result = await this.fetchSegmentDirect(url, rangeHeader);
+        const result = await this.fetchSegmentDirect(url, rangeHeader, customReferer);
         if (result && !rangeHeader) {
             this.storeInCache(url, result);
-            this.triggerPrefetch(url);
+            this.triggerPrefetch(url, customReferer);
         }
         return result;
     }
     /**
      * Trigger parallel prefetching for the next N segments in the playlist
      */
-    triggerPrefetch(currentUrl) {
+    triggerPrefetch(currentUrl, customReferer) {
         const meta = this.segmentIndexMap.get(currentUrl);
         if (!meta)
             return;
@@ -83,7 +115,7 @@ class HlsAccelerator {
         for (let i = startIndex; i < endIndex; i++) {
             const nextUrl = segments[i];
             if (!this.cache.has(nextUrl) && !this.inFlight.has(nextUrl)) {
-                const fetchPromise = this.fetchSegmentDirect(nextUrl)
+                const fetchPromise = this.fetchSegmentDirect(nextUrl, undefined, customReferer)
                     .then((res) => {
                     if (res)
                         this.storeInCache(nextUrl, res);
@@ -101,18 +133,27 @@ class HlsAccelerator {
         this.pruneOldSegments(segments, meta.index);
     }
     /**
-     * Perform direct fetch with Movy headers via upstream tunnel
+     * Perform direct fetch with appropriate headers via upstream tunnel
      */
-    async fetchSegmentDirect(url, rangeHeader) {
+    async fetchSegmentDirect(url, rangeHeader, customReferer) {
         try {
-            const reqHeaders = { ...this.headers };
+            const reqHeaders = this.getHeadersForUrl(url, customReferer);
             if (rangeHeader)
                 reqHeaders['Range'] = rangeHeader;
             const res = await (0, upstream_1.fetchUpstream)(url, { headers: reqHeaders, timeout: 15000 });
             if (!res.ok && res.status !== 206)
                 return null;
             const data = await res.buffer();
-            const contentType = res.headers['content-type'] || 'video/mp4';
+            let contentType = res.headers['content-type'] || '';
+            // Fix spoofed image content-types (e.g. image/png on SlowCloud) to proper video MIME
+            if (!contentType || contentType.includes('image') || contentType.includes('octet-stream')) {
+                if (data.length > 0 && data[0] === 0x47) {
+                    contentType = 'video/mp2t';
+                }
+                else {
+                    contentType = 'video/mp4';
+                }
+            }
             return { data, contentType };
         }
         catch (err) {
@@ -124,7 +165,6 @@ class HlsAccelerator {
      */
     storeInCache(url, item) {
         if (this.cache.size >= this.maxCacheItems) {
-            // Evict oldest entry
             const oldestKey = this.cache.keys().next().value;
             if (oldestKey)
                 this.cache.delete(oldestKey);
