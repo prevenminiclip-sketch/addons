@@ -32,7 +32,7 @@ version: "3.8"
 services:
   movy-stremio-addon:
     build:
-      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.1.1-stable
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.0-stable
     container_name: movy-stremio-addon
     restart: unless-stopped
     network_mode: "host"
@@ -44,7 +44,7 @@ services:
 
   caddy:
     build:
-      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.1.1-stable
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.0-stable
       dockerfile: Dockerfile.caddy
     container_name: movy-caddy-ssl
     restart: unless-stopped
@@ -72,18 +72,29 @@ volumes:
 
 ---
 
-## 📺 Adding Movy to Stremio
+## 📺 Adding Providers to Stremio (Separate Tabs or All-in-One)
 
 > **Important:** Stremio **requires HTTPS** for all custom addons to ensure secure installation, playback compatibility, and cross-device account syncing (Stremio Web, Android TV, Firestick, Desktop, and Mobile).
 
-Paste your HTTPS manifest URL directly into the search bar at the top of Stremio:
+You can install each provider as an **independent tab in Stremio** (so they load in parallel like Premiumize does, and appear in their own dedicated sections), or install the **Combined Addon**:
 
+### 🎯 Option 1: Modular Separate Tabs (Recommended)
+Paste any of the following URLs directly into Stremio's search bar:
+
+| Provider | Stremio Tab Name | Strengths & Formats | Manifest URL to Paste into Stremio |
+| :--- | :--- | :--- | :--- |
+| **Movy** | `Movy` | GoldenKite & WeCollege Clusters (4K & 1080p) | `https://my-domain.duckdns.org/movy/manifest.json` |
+| **Hexa** | `Hexa (4K)` | Direct 4K HLS Master + Dolby Atmos / 5.1 Audio | `https://my-domain.duckdns.org/hexa/manifest.json` |
+| **MovieBox** | `MovieBox` | Vidrock, CinemaOS, StreamingUnity CDN | `https://my-domain.duckdns.org/moviebox/manifest.json` |
+| **Rivestream** | `Rivestream` | Akamai CloudFront Direct CDN | `https://my-domain.duckdns.org/rivestream/manifest.json` |
+
+*When installed this way, Stremio queries each provider concurrently over independent HTTP connections. Whichever finishes first displays immediately on screen, without waiting for or depending on any other provider.*
+
+### 📦 Option 2: All Providers Combined
+If you prefer a single addon with all sources merged into one list:
 ```text
-https://my-domain.duckdns.org/movy/manifest.json
+https://my-domain.duckdns.org/manifest.json
 ```
-*(or `https://my-domain.duckdns.org/manifest.json`)*
-
-Click **Install**.
 
 ---
 

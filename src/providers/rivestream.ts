@@ -90,7 +90,7 @@ export class RivestreamProvider implements IStreamProvider {
 
       streams.push(
         buildStreamCard({
-          addonName: 'Movy',
+          addonName: 'Rivestream',
           title: details.title,
           streamUrl: proxiedUrl,
           bingeGroup: isMovie ? undefined : `rivestream-${meta.tmdbId}-${target.season}`,

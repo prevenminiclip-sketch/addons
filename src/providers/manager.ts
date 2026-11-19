@@ -26,34 +26,64 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T, name: stri
 }
 
 export class ProviderManager {
+  private providers: Map<string, IStreamProvider>;
   private primaryProvider: IStreamProvider;
   private secondaryProviders: IStreamProvider[];
 
   constructor() {
-    // Movy is the primary provider (always ranked first)
-    this.primaryProvider = new MovyProvider();
+    const movy = new MovyProvider();
+    const hexa = new HexaProvider();
+    const moviebox = new MovieBoxProvider();
+    const rivestream = new RivestreamProvider();
 
-    // Additional direct providers running in parallel
-    this.secondaryProviders = [
-      new HexaProvider(),
-      new MovieBoxProvider(),
-      new RivestreamProvider(),
-    ];
+    this.primaryProvider = movy;
+    this.secondaryProviders = [hexa, moviebox, rivestream];
+
+    this.providers = new Map<string, IStreamProvider>([
+      ['movy', movy],
+      ['hexa', hexa],
+      ['moviebox', moviebox],
+      ['rivestream', rivestream],
+    ]);
+  }
+
+  public getAvailableProviders(): string[] {
+    return Array.from(this.providers.keys());
   }
 
   public async getStreams(
     target: MediaTarget,
     baseUrl: string,
-    accessKey?: string
+    accessKey?: string,
+    providerFilter?: string
   ): Promise<StremioStream[]> {
-    // 1. Resolve metadata once for all providers
+    // 1. Resolve metadata once
     const meta: ResolvedMetadata | null = await resolveMetadata(target);
     if (!meta) {
       console.warn(`[ProviderManager] Unable to resolve metadata for target:`, target);
       return [];
     }
 
-    // 10-second timeout ensures all Movy clusters complete cleanly
+    const filter = (providerFilter || 'all').toLowerCase().trim();
+
+    // Fast-path: Single modular provider requested by dedicated Stremio tab
+    if (filter !== 'all' && this.providers.has(filter)) {
+      const provider = this.providers.get(filter)!;
+      try {
+        console.log(`[ProviderManager] Querying single provider "${provider.name}" for "${meta.title}"...`);
+        return await withTimeout(
+          provider.getStreams(target, meta, baseUrl, accessKey),
+          10000,
+          [],
+          provider.name
+        );
+      } catch (err: any) {
+        console.error(`[Provider Exception] ${provider.name} failed:`, err?.message || err);
+        return [];
+      }
+    }
+
+    // 10-second timeout ensures all clusters complete cleanly
     const PROVIDER_TIMEOUT_MS = 10000;
 
     // 2. Query primary (Movy) and all secondary providers concurrently

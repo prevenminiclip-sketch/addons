@@ -5,12 +5,13 @@ async function main() {
   const manager = new ProviderManager();
   const testId = process.argv[2] || 'tt0137523'; // Fight Club
   const testType = (process.argv[3] || (testId.includes(':') ? 'series' : 'movie')) as 'movie' | 'series';
+  const testProvider = process.argv[4] || 'all';
 
-  console.log(`\n🔍 Testing ProviderManager for ID: ${testId} (Type: ${testType})...`);
+  console.log(`\n🔍 Testing ProviderManager for ID: ${testId} (Type: ${testType}, Provider: ${testProvider})...`);
 
   try {
     const target = parseStremioId(testType, testId);
-    const streams = await manager.getStreams(target, 'http://localhost:7000');
+    const streams = await manager.getStreams(target, 'http://localhost:7000', undefined, testProvider);
 
     console.log(`\n✅ Success! Total streams received: ${streams.length}\n`);
 

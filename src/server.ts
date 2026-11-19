@@ -10,18 +10,76 @@ const ACCESS_KEY = (process.env.ACCESS_KEY || '').trim();
 const providerManager = new ProviderManager();
 const accelerator = new HlsAccelerator();
 
-const MANIFEST = {
-  id: 'org.cinestream.movysx',
-  version: '1.1.0',
-  name: 'Movy',
-  description: 'Movy',
-  resources: ['stream'],
-  types: ['movie', 'series'],
-  idPrefixes: ['tt', 'tmdb:'],
-  catalogs: [],
+interface AddonManifest {
+  id: string;
+  version: string;
+  name: string;
+  description: string;
+  resources: string[];
+  types: string[];
+  idPrefixes: string[];
+  catalogs: any[];
   behaviorHints: {
-    configurable: false,
-    configurationRequired: false,
+    configurable: boolean;
+    configurationRequired: boolean;
+  };
+}
+
+const MANIFESTS: Record<string, AddonManifest> = {
+  all: {
+    id: 'org.cinestream.all',
+    version: '1.1.1',
+    name: 'Movy (All Providers)',
+    description: 'Combined direct HLS streams from Movy, Hexa 4K, MovieBox, and Rivestream',
+    resources: ['stream'],
+    types: ['movie', 'series'],
+    idPrefixes: ['tt', 'tmdb:'],
+    catalogs: [],
+    behaviorHints: { configurable: false, configurationRequired: false },
+  },
+  movy: {
+    id: 'org.cinestream.movysx',
+    version: '1.1.1',
+    name: 'Movy',
+    description: 'Direct HLS streams from Movy & WeCollege edge clusters',
+    resources: ['stream'],
+    types: ['movie', 'series'],
+    idPrefixes: ['tt', 'tmdb:'],
+    catalogs: [],
+    behaviorHints: { configurable: false, configurationRequired: false },
+  },
+  hexa: {
+    id: 'org.cinestream.hexa',
+    version: '1.1.1',
+    name: 'Hexa (4K)',
+    description: 'Direct 4K HLS Master streams with multi-audio Dolby Atmos / 5.1',
+    resources: ['stream'],
+    types: ['movie', 'series'],
+    idPrefixes: ['tt', 'tmdb:'],
+    catalogs: [],
+    behaviorHints: { configurable: false, configurationRequired: false },
+  },
+  moviebox: {
+    id: 'org.cinestream.moviebox',
+    version: '1.1.1',
+    name: 'MovieBox',
+    description: 'Direct streams from MovieBox, Vidrock, CinemaOS, and StreamingUnity',
+    resources: ['stream'],
+    types: ['movie', 'series'],
+    idPrefixes: ['tt', 'tmdb:'],
+    catalogs: [],
+    behaviorHints: { configurable: false, configurationRequired: false },
+  },
+  rivestream: {
+    id: 'org.cinestream.rivestream',
+    version: '1.1.1',
+    name: 'Rivestream',
+    description: 'Direct signed Akamai CloudFront CDN streams',
+    resources: ['stream'],
+    types: ['movie', 'series'],
+    idPrefixes: ['tt', 'tmdb:'],
+    catalogs: [],
+    behaviorHints: { configurable: false, configurationRequired: false },
   },
 };
 
@@ -55,11 +113,6 @@ const server = http.createServer(async (req, res) => {
   const rawSegments = pathname.split('/').filter(Boolean);
   const cleanSegments = [...rawSegments];
 
-  // Strip leading 'movy' or 'stremio' prefix if present
-  if (cleanSegments[0]?.toLowerCase() === 'movy' || cleanSegments[0]?.toLowerCase() === 'stremio') {
-    cleanSegments.shift();
-  }
-
   // Extract access key from query param, header, or URL path
   let providedKey =
     parsedUrl.searchParams.get('k') ||
@@ -81,10 +134,19 @@ const server = http.createServer(async (req, res) => {
     if (seg === ACCESS_KEY || decodeURIComponent(seg) === ACCESS_KEY) {
       providedKey = ACCESS_KEY;
       cleanSegments.shift();
-      // Handle optional 'movy' / 'stremio' prefix after key (e.g. /<key>/movy/manifest.json)
-      if (cleanSegments[0]?.toLowerCase() === 'movy' || cleanSegments[0]?.toLowerCase() === 'stremio') {
-        cleanSegments.shift();
-      }
+    }
+  }
+
+  // Identify modular provider prefix: 'movy', 'hexa', 'moviebox', 'rivestream', 'all', 'stremio'
+  let providerFilter = 'all';
+  const KNOWN_PROVIDERS = ['movy', 'hexa', 'moviebox', 'rivestream', 'all'];
+  if (cleanSegments.length > 0) {
+    const firstSeg = cleanSegments[0].toLowerCase();
+    if (KNOWN_PROVIDERS.includes(firstSeg)) {
+      providerFilter = firstSeg;
+      cleanSegments.shift();
+    } else if (firstSeg === 'stremio') {
+      cleanSegments.shift();
     }
   }
 
@@ -100,19 +162,31 @@ const server = http.createServer(async (req, res) => {
 
   // Root or health check
   if (normalizedPath === '/' || normalizedPath === '/health') {
+    const proto = (req.headers['x-forwarded-proto'] as string) || ((req.socket as any).encrypted ? 'https' : 'http');
+    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || `localhost:${PORT}`;
     const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
+    const base = `${proto}://${host}${keyPrefix}`;
+
     return sendJson(res, 200, {
       status: 'ok',
-      service: 'Movy Multi-Source Stremio Addon',
-      version: MANIFEST.version,
-      manifest: `${keyPrefix}/manifest.json`,
+      service: 'Movy Modular Stremio Addon Server',
+      version: '1.1.1',
+      description: 'Individual providers as separate Stremio tabs or All-in-One combined',
+      stremioTabs: {
+        movy: `${base}/movy/manifest.json`,
+        hexa: `${base}/hexa/manifest.json`,
+        moviebox: `${base}/moviebox/manifest.json`,
+        rivestream: `${base}/rivestream/manifest.json`,
+        allCombined: `${base}/manifest.json`,
+      },
       authenticated: !!ACCESS_KEY,
     });
   }
 
   // Stremio Addon Manifest
   if (normalizedPath === '/manifest.json') {
-    return sendJson(res, 200, MANIFEST);
+    const manifest = MANIFESTS[providerFilter] || MANIFESTS.all;
+    return sendJson(res, 200, manifest);
   }
 
   // Debug diagnostic endpoint
@@ -312,18 +386,18 @@ const server = http.createServer(async (req, res) => {
     const rawId = decodeURIComponent(streamMatch[2]);
 
     try {
-      console.log(`[Stream Request] Type: ${type}, ID: ${rawId}`);
+      console.log(`[Stream Request] Provider: ${providerFilter}, Type: ${type}, ID: ${rawId}`);
       const proto = (req.headers['x-forwarded-proto'] as string) || ((req.socket as any).encrypted ? 'https' : 'http');
       const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || `localhost:${PORT}`;
       const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
       const baseUrl = `${proto}://${host}${keyPrefix}`;
 
       const target = parseStremioId(type, rawId);
-      const streams = await providerManager.getStreams(target, baseUrl, ACCESS_KEY);
-      console.log(`[Stream Response] Returning total ${streams.length} stream(s) for ${rawId}`);
+      const streams = await providerManager.getStreams(target, baseUrl, ACCESS_KEY, providerFilter);
+      console.log(`[Stream Response] Returning total ${streams.length} stream(s) for ${rawId} (Provider: ${providerFilter})`);
       return sendJson(res, 200, { streams });
     } catch (err: any) {
-      console.error(`[Stream Error] ${rawId}:`, err);
+      console.error(`[Stream Error] ${rawId} (${providerFilter}):`, err);
       return sendJson(res, 200, { streams: [] });
     }
   }
@@ -333,16 +407,21 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
+  const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
   console.log(`====================================================`);
-  console.log(`🚀 Movy Multi-Source Stremio Addon Server running on port ${PORT}`);
-  console.log(`⚡ Active Providers: Movy (Primary), Hexa 4K, MovieBox, Rivestream`);
+  console.log(`🚀 Movy Modular Stremio Addon Server running on port ${PORT}`);
+  console.log(`⚡ Individual Stremio Tabs (Independent & Parallel):`);
+  console.log(`   - Movy:       http://localhost:${PORT}${keyPrefix}/movy/manifest.json`);
+  console.log(`   - Hexa (4K):  http://localhost:${PORT}${keyPrefix}/hexa/manifest.json`);
+  console.log(`   - MovieBox:   http://localhost:${PORT}${keyPrefix}/moviebox/manifest.json`);
+  console.log(`   - Rivestream: http://localhost:${PORT}${keyPrefix}/rivestream/manifest.json`);
+  console.log(`⚡ Combined Addon (All Providers in one tab):`);
+  console.log(`   - All-in-One: http://localhost:${PORT}${keyPrefix}/manifest.json`);
   console.log(`⚡ HLS Multi-Stream Accelerator: Active`);
   if (ACCESS_KEY) {
-    console.log(`🔒 Secret Access Token: Enabled`);
-    console.log(`👉 Protected Manifest URL: http://localhost:${PORT}/${ACCESS_KEY}/manifest.json`);
+    console.log(`🔒 Secret Access Token: Enabled (${ACCESS_KEY})`);
   } else {
     console.log(`🔓 Secret Access Token: Disabled (Public mode)`);
-    console.log(`👉 Open Manifest URL: http://localhost:${PORT}/manifest.json`);
   }
   console.log(`🔗 Ready to connect into Stremio`);
   console.log(`====================================================`);

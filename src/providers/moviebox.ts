@@ -91,7 +91,7 @@ export class MovieBoxProvider implements IStreamProvider {
         });
 
         const stream = buildStreamCard({
-          addonName: 'Movy',
+          addonName: 'MovieBox',
           title: details.title,
           streamUrl,
           bingeGroup: isMovie ? undefined : `moviebox-${subProvider.toLowerCase()}-${meta.tmdbId}`,

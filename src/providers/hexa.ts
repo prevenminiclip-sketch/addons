@@ -85,7 +85,7 @@ export class HexaProvider implements IStreamProvider {
 
       streams.push(
         buildStreamCard({
-          addonName: 'Movy',
+          addonName: 'Hexa',
           title: details.title,
           streamUrl: proxiedUrl,
           bingeGroup: isMovie ? undefined : `hexa-${meta.tmdbId}-${target.season}`,
