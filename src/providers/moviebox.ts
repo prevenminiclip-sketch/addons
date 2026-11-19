@@ -1,6 +1,6 @@
 import { fetchUpstream } from '../upstream';
 import { IStreamProvider, MediaTarget, ResolvedMetadata, StremioStream } from '../types';
-import { createProxiedHlsUrl, formatStreamCard, normalizeQuality } from './base';
+import { createProxiedHlsUrl, formatStreamDetails, buildStreamCard } from './base';
 
 interface MovieBoxSource {
   provider?: string;
@@ -36,11 +36,10 @@ export class MovieBoxProvider implements IStreamProvider {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'application/json',
         },
-        timeout: 6000,
+        timeout: 4500,
       });
 
       if (!res.ok) {
-        console.warn(`[MovieBox Provider] HTTP ${res.status} for TMDB ID ${meta.tmdbId}`);
         return [];
       }
 
@@ -49,18 +48,21 @@ export class MovieBoxProvider implements IStreamProvider {
         return [];
       }
 
-      const streams: StremioStream[] = [];
+      interface RankedStream {
+        stream: StremioStream;
+        score: number;
+      }
+
+      const rankedStreams: RankedStream[] = [];
       const seenUrls = new Set<string>();
 
       for (const item of data.sources as MovieBoxSource[]) {
-        // Extract the direct stream URL, bypassing any site proxy wrapper
         const directUrl = (item.original_url || item.url || '').trim();
         if (!directUrl || !directUrl.startsWith('http') || seenUrls.has(directUrl)) {
           continue;
         }
         seenUrls.add(directUrl);
 
-        // Determine referer needed by upstream CDN
         let neededReferer: string | undefined;
         if (
           directUrl.includes('slowcloud.live') ||
@@ -71,44 +73,35 @@ export class MovieBoxProvider implements IStreamProvider {
           neededReferer = 'https://vidrock.to/';
         }
 
-        // Route HLS streams through our local Portainer accelerator
         const isHls = directUrl.includes('.m3u8') || item.type?.toLowerCase() === 'hls';
         const streamUrl = isHls
           ? createProxiedHlsUrl(directUrl, baseUrl, { referer: neededReferer, accessKey })
           : directUrl;
 
-        const rawQuality = item.resolution || item.quality || '1080p';
-        const quality = normalizeQuality(rawQuality);
         const subProvider = item.provider || 'Vidrock';
         const serverName = item.server || 'Direct';
-        const lang = item.language || 'English';
+        const rawQuality = item.resolution || item.quality || '1080p';
 
-        streams.push(
-          formatStreamCard({
-            addonBrand: 'MovieBox',
-            quality,
-            title: meta.title,
-            year: meta.year,
-            serverInfo: `${subProvider} · ${serverName}`,
-            audioInfo: lang,
-            streamUrl,
-            bingeGroup: `moviebox-${subProvider.toLowerCase()}-${quality.toLowerCase()}`,
-          })
-        );
+        const details = formatStreamDetails({
+          resolutionRaw: rawQuality,
+          isMovie,
+          hoster: `${subProvider} CDN`,
+          serverName,
+          audioOverride: item.language,
+        });
+
+        const stream = buildStreamCard({
+          addonName: 'Movy',
+          title: details.title,
+          streamUrl,
+          bingeGroup: isMovie ? undefined : `moviebox-${subProvider.toLowerCase()}-${meta.tmdbId}`,
+        });
+
+        rankedStreams.push({ stream, score: details.score });
       }
 
-      // Sort: 1080p > 720p > Auto > 480p
-      streams.sort((a, b) => {
-        const score = (name: string) => {
-          if (name.includes('[4K]')) return 400;
-          if (name.includes('[1080p]')) return 300;
-          if (name.includes('[720p]')) return 200;
-          return 100;
-        };
-        return score(b.name) - score(a.name);
-      });
-
-      return streams;
+      rankedStreams.sort((a, b) => b.score - a.score);
+      return rankedStreams.map((r) => r.stream);
     } catch (err) {
       console.error('[MovieBox Provider Error]', err);
       return [];

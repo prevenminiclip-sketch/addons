@@ -1,7 +1,7 @@
 import { decryptMovyPayload } from '../crypto';
 import { fetchUpstream } from '../upstream';
 import { IStreamProvider, MediaTarget, ResolvedMetadata, StremioStream } from '../types';
-import { createProxiedHlsUrl, formatStreamCard } from './base';
+import { createProxiedHlsUrl, formatStreamDetails, buildStreamCard } from './base';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -23,7 +23,6 @@ export const SERVER_PROVIDERS: ServerProvider[] = [
 
   // Tier 2: High-speed direct Cloudflare edge & direct HLS CDNs
   { name: 'Chicago', cluster: 'chicago', tier: 2, hoster: 'Cloudflare Edge' },
-  { name: 'Dallas', cluster: 'dallas', tier: 2, hoster: 'MajorPlay CDN' },
   { name: 'Seattle', cluster: 'seattle', tier: 2, hoster: 'WarmSquare CDN' },
   { name: 'Atlanta', cluster: 'atlanta', tier: 2, hoster: 'WeCollege Direct' },
   { name: 'Phoenix', cluster: 'phoenix', tier: 2, hoster: 'WarmSquare CDN' },
@@ -34,11 +33,9 @@ export const SERVER_PROVIDERS: ServerProvider[] = [
   { name: 'Austin', cluster: 'austin', tier: 3, hoster: 'Geffe Hoster' },
   { name: 'Reno', cluster: 'reno', tier: 3, hoster: 'Cloudflare Edge' },
   { name: 'Oakland', cluster: 'oakland', tier: 3, hoster: 'Cloudflare Edge' },
-  { name: 'Vegas', cluster: 'vegas', tier: 3, hoster: 'Vidmoly' },
 
   // Tier 4: International dubbed servers
   { name: 'Paris', cluster: 'paris', tier: 4, hoster: 'French Dub' },
-  { name: 'Berlin', cluster: 'berlin', tier: 4, hoster: 'German Dub' },
   { name: 'Munich', cluster: 'munich', tier: 4, hoster: 'German Dub' },
   { name: 'Cancun', cluster: 'cancun', tier: 4, hoster: 'Spanish Dub' },
   { name: 'Delhi', cluster: 'delhi', tier: 4, hoster: 'Hindi Dub' },
@@ -63,15 +60,15 @@ export class MovyProvider implements IStreamProvider {
 
   private async getSeed(tmdbId: number): Promise<string> {
     const url = `https://api.wecollege.net/seed?mediaId=${tmdbId}`;
-    const res = await fetchUpstream(url, { headers: HEADERS, timeout: 6000 });
+    const res = await fetchUpstream(url, { headers: HEADERS, timeout: 3500 });
     if (!res.ok) {
       throw new Error(`Failed to fetch seed from api.wecollege.net (HTTP ${res.status})`);
     }
-    const data: any = await res.json();
+    const data = await res.json(3500);
     return data.seed;
   }
 
-  private async fetchAllSources(
+  public async fetchAllSources(
     target: MediaTarget,
     meta: ResolvedMetadata
   ): Promise<Array<{ server: ServerProvider; data: DecryptedSourcesResponse }>> {
@@ -95,14 +92,14 @@ export class MovyProvider implements IStreamProvider {
 
     const query = new URLSearchParams(baseParams).toString();
 
-    // Query all server clusters in parallel
+    // Query active server clusters in parallel with a 3.0s per-cluster timeout
     const promises = SERVER_PROVIDERS.map(async (server) => {
       try {
         const clusterUrl = `https://api.wecollege.net/${server.cluster}/sources?${query}`;
-        const res = await fetchUpstream(clusterUrl, { headers: HEADERS, timeout: 6000 });
+        const res = await fetchUpstream(clusterUrl, { headers: HEADERS, timeout: 3000 });
         if (!res.ok) return null;
 
-        const cipherText = await res.text();
+        const cipherText = await res.text(3000);
         if (!cipherText || cipherText.length < 20) return null;
 
         const decryptedJson = decryptMovyPayload(cipherText, seed, meta.tmdbId);
@@ -138,6 +135,9 @@ export class MovyProvider implements IStreamProvider {
       const clusterResults = await this.fetchAllSources(target, meta);
       if (!clusterResults.length) return [];
 
+      const isMovie = target.type === 'movie';
+      const bingeGroup = !isMovie ? `movysx-${meta.tmdbId}-${target.season}` : undefined;
+
       interface RankedStream {
         stream: StremioStream;
         score: number;
@@ -147,7 +147,9 @@ export class MovyProvider implements IStreamProvider {
       const seenUrls = new Set<string>();
 
       for (const { server, data } of clusterResults) {
-        // Master M3U8 Playlist
+        const tierBaseScore = Math.max(0, (5 - server.tier) * 300);
+
+        // 1. Master Auto-Adaptive Playlist
         if (data.playlist && !seenUrls.has(data.playlist)) {
           seenUrls.add(data.playlist);
           const proxiedUrl = createProxiedHlsUrl(data.playlist, baseUrl, {
@@ -155,32 +157,30 @@ export class MovyProvider implements IStreamProvider {
             accessKey,
           });
 
-          let badge = 'Auto';
-          let qualityScore = 300;
-          if (server.tier === 1) {
-            badge = '4K';
-            qualityScore = 500;
-          } else if (server.tier === 2) {
-            badge = '1080p';
-            qualityScore = 400;
-          }
-
-          const stream = formatStreamCard({
-            addonBrand: 'Movy',
-            quality: badge,
-            title: meta.title,
-            year: meta.year,
-            serverInfo: `${server.name} (${server.hoster})`,
-            audioInfo: server.tier === 4 ? server.hoster : 'English / Multi',
-            streamUrl: proxiedUrl,
-            bingeGroup: `movy-${badge.toLowerCase()}`,
+          const details = formatStreamDetails({
+            resolutionRaw: server.tier === 1 ? '4k' : 'auto',
+            isMovie,
+            hoster: server.hoster,
+            serverName: server.name,
+            audioOverride: server.tier === 4 ? server.hoster : undefined,
           });
 
-          const tierScore = (5 - server.tier) * 1000;
-          rankedStreams.push({ stream, score: tierScore + qualityScore });
+          const stream = buildStreamCard({
+            addonName: 'Movy',
+            title: details.title,
+            streamUrl: proxiedUrl,
+            bingeGroup,
+            requestHeaders: {
+              Referer: 'https://www.movy.sx/',
+              Origin: 'https://www.movy.sx',
+              'User-Agent': HEADERS['User-Agent'],
+            },
+          });
+
+          rankedStreams.push({ stream, score: tierBaseScore + details.score });
         }
 
-        // Individual quality streams
+        // 2. Individual quality streams
         if (data.sources && Array.isArray(data.sources)) {
           for (const src of data.sources) {
             if (!src.url || seenUrls.has(src.url)) continue;
@@ -191,27 +191,27 @@ export class MovyProvider implements IStreamProvider {
               accessKey,
             });
 
-            const q = src.quality || 'Auto';
-            let qualityScore = 200;
-            const qLower = q.toLowerCase();
-            if (qLower.includes('2160') || qLower.includes('4k')) qualityScore = 500;
-            else if (qLower.includes('1080')) qualityScore = 400;
-            else if (qLower.includes('720')) qualityScore = 300;
-            else if (qLower.includes('480')) qualityScore = 200;
-
-            const stream = formatStreamCard({
-              addonBrand: 'Movy',
-              quality: q,
-              title: meta.title,
-              year: meta.year,
-              serverInfo: `${server.name} (${server.hoster})`,
-              audioInfo: server.tier === 4 ? server.hoster : 'English',
-              streamUrl: proxiedUrl,
-              bingeGroup: `movy-${qLower}`,
+            const details = formatStreamDetails({
+              resolutionRaw: src.quality,
+              isMovie,
+              hoster: server.hoster,
+              serverName: server.name,
+              audioOverride: server.tier === 4 ? server.hoster : undefined,
             });
 
-            const tierScore = (5 - server.tier) * 1000;
-            rankedStreams.push({ stream, score: tierScore + qualityScore });
+            const stream = buildStreamCard({
+              addonName: 'Movy',
+              title: details.title,
+              streamUrl: proxiedUrl,
+              bingeGroup,
+              requestHeaders: {
+                Referer: 'https://www.movy.sx/',
+                Origin: 'https://www.movy.sx',
+                'User-Agent': HEADERS['User-Agent'],
+              },
+            });
+
+            rankedStreams.push({ stream, score: tierBaseScore + details.score });
           }
         }
       }

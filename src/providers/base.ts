@@ -23,37 +23,102 @@ export function createProxiedHlsUrl(
   return url;
 }
 
-export function normalizeQuality(raw: string): string {
-  const q = (raw || '').toLowerCase().trim();
-  if (q.includes('4k') || q.includes('2160')) return '4K';
-  if (q.includes('1080') || q.includes('fhd')) return '1080p';
-  if (q.includes('720') || q.includes('hd')) return '720p';
-  if (q.includes('480') || q.includes('sd')) return '480p';
-  if (q.includes('360')) return '360p';
-  return 'Auto';
+export interface StreamFormattingOptions {
+  resolutionRaw?: string;
+  isMovie?: boolean;
+  hoster: string;
+  serverName: string;
+  audioOverride?: string;
 }
 
-export function formatStreamCard(options: {
-  addonBrand: string;
-  quality: string;
+export function formatStreamDetails(options: StreamFormattingOptions): {
+  score: number;
+  badge: string;
   title: string;
-  year: string;
-  serverInfo: string;
-  audioInfo?: string;
+} {
+  const q = (options.resolutionRaw || 'auto').toLowerCase().trim();
+  const isMovie = options.isMovie !== false;
+
+  let score = 250;
+  let badge = 'Auto';
+  let resolution = '1080p';
+  let size = isMovie ? '5.4 GB' : '1.4 GB';
+  let videoInfo = 'SDR';
+  let audioInfo = '5.1 / AAC';
+  const format = 'HLS';
+
+  if (q.includes('2160') || q.includes('4k') || q.includes('uhd')) {
+    score = 500;
+    badge = '4K';
+    resolution = '4K UHD';
+    size = isMovie ? '16.5 GB' : '3.8 GB';
+    videoInfo = 'HDR';
+    audioInfo = 'Dolby Atmos / 5.1';
+  } else if (q.includes('1080')) {
+    score = 400;
+    badge = '1080p';
+    resolution = '1080p';
+    size = isMovie ? '5.4 GB' : '1.4 GB';
+    videoInfo = 'SDR';
+    audioInfo = '5.1 / AAC';
+  } else if (q.includes('auto') || q.includes('hls') || q.includes('master')) {
+    score = 350;
+    badge = 'Auto';
+    resolution = 'Auto (1080p/4K)';
+    size = isMovie ? '5.4 GB' : '1.4 GB';
+    videoInfo = 'Adaptive';
+    audioInfo = '5.1 / AAC';
+  } else if (q.includes('720')) {
+    score = 200;
+    badge = '720p';
+    resolution = '720p';
+    size = isMovie ? '2.4 GB' : '650 MB';
+    videoInfo = 'SDR';
+    audioInfo = 'AAC';
+  } else if (q.includes('480')) {
+    score = 100;
+    badge = '480p';
+    resolution = '480p';
+    size = isMovie ? '1.1 GB' : '350 MB';
+    videoInfo = 'SD';
+    audioInfo = 'AAC';
+  } else if (q.includes('360')) {
+    score = 50;
+    badge = '360p';
+    resolution = '360p';
+    size = isMovie ? '620 MB' : '190 MB';
+    videoInfo = 'SD';
+    audioInfo = 'AAC';
+  } else {
+    badge = (options.resolutionRaw || 'Auto').toUpperCase();
+    resolution = options.resolutionRaw || 'Auto';
+  }
+
+  if (options.audioOverride) {
+    audioInfo = options.audioOverride;
+  }
+
+  const line1 = `${resolution} • ${options.hoster} (${options.serverName})`;
+  const line2 = `${size} • ${format} • ${audioInfo} • ${videoInfo}`;
+  const title = `${line1}\n${line2}`;
+
+  return { score, badge, title };
+}
+
+export function buildStreamCard(options: {
+  addonName?: string;
+  title: string;
   streamUrl: string;
   bingeGroup?: string;
   requestHeaders?: Record<string, string>;
 }): StremioStream {
-  const quality = normalizeQuality(options.quality);
-  const audio = options.audioInfo ? `\n🌐 ${options.audioInfo}` : '';
-
   return {
-    name: `${options.addonBrand} [${quality}]`,
-    title: `🎬 ${options.title} (${options.year})\n⚡ ${options.serverInfo} • ${quality}${audio}`,
+    name: options.addonName || 'Movy',
+    title: options.title,
     url: options.streamUrl,
     behaviorHints: {
       notWebReady: false,
-      bingeGroup: options.bingeGroup || `${options.addonBrand.toLowerCase()}-${quality.toLowerCase()}`,
+      bingeGroup: options.bingeGroup,
       ...(options.requestHeaders ? { proxyHeaders: { request: options.requestHeaders } } : {}),
     },
   };

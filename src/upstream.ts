@@ -23,9 +23,9 @@ export interface UpstreamResponse {
   statusText: string;
   headers: http.IncomingHttpHeaders;
   stream: Readable;
-  text: () => Promise<string>;
-  buffer: () => Promise<Buffer>;
-  json: () => Promise<any>;
+  text: (readTimeoutMs?: number) => Promise<string>;
+  buffer: (readTimeoutMs?: number) => Promise<Buffer>;
+  json: (readTimeoutMs?: number) => Promise<any>;
 }
 
 /**
@@ -59,7 +59,6 @@ function connectSocks5(
     let state = 0; // 0: greeting sent, awaiting auth choice; 1: auth accepted, awaiting connect reply
 
     socket.on('connect', () => {
-      // Step 1: Greeting (VER=5, NMETHODS=1, METHOD=0 No Auth)
       socket.write(Buffer.from([0x05, 0x01, 0x00]));
     });
 
@@ -74,7 +73,6 @@ function connectSocks5(
           }
         }
         state = 1;
-        // Step 2: SOCKS5 CONNECT (VER=5, CMD=1, RSV=0, ATYP=3 Domain)
         const hostBuf = Buffer.from(targetHost, 'utf8');
         const reqBuf = Buffer.alloc(4 + 1 + hostBuf.length + 2);
         reqBuf[0] = 0x05;
@@ -95,7 +93,6 @@ function connectSocks5(
             return reject(new Error(`SOCKS5 CONNECT failed to ${targetHost}:${targetPort} (status ${rep})`));
           }
         }
-        // Handshake succeeded!
         if (!finished) {
           finished = true;
           cleanup();
@@ -114,28 +111,55 @@ function connectSocks5(
   });
 }
 
-function wrapResponse(res: http.IncomingMessage): UpstreamResponse {
+function wrapResponse(res: http.IncomingMessage, defaultTimeoutMs: number = 4000): UpstreamResponse {
   const status = res.statusCode || 0;
   const ok = (status >= 200 && status < 300) || status === 206;
   let cachedBuf: Buffer | null = null;
 
-  const buffer = async (): Promise<Buffer> => {
-    if (cachedBuf) return cachedBuf;
+  const buffer = (readTimeoutMs = defaultTimeoutMs): Promise<Buffer> => {
+    if (cachedBuf) return Promise.resolve(cachedBuf);
     const chunks: Buffer[] = [];
-    for await (const chunk of res) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    cachedBuf = Buffer.concat(chunks);
-    return cachedBuf;
+
+    return new Promise<Buffer>((resolve, reject) => {
+      let done = false;
+      const readTimer = setTimeout(() => {
+        if (!done) {
+          done = true;
+          res.destroy();
+          reject(new Error(`Stream read timed out after ${readTimeoutMs}ms`));
+        }
+      }, readTimeoutMs);
+
+      res.on('data', (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+
+      res.on('end', () => {
+        if (!done) {
+          done = true;
+          clearTimeout(readTimer);
+          cachedBuf = Buffer.concat(chunks);
+          resolve(cachedBuf);
+        }
+      });
+
+      res.on('error', (err) => {
+        if (!done) {
+          done = true;
+          clearTimeout(readTimer);
+          reject(err);
+        }
+      });
+    });
   };
 
-  const text = async (): Promise<string> => {
-    const b = await buffer();
+  const text = async (readTimeoutMs?: number): Promise<string> => {
+    const b = await buffer(readTimeoutMs);
     return b.toString('utf8');
   };
 
-  const json = async (): Promise<any> => {
-    const t = await text();
+  const json = async (readTimeoutMs?: number): Promise<any> => {
+    const t = await text(readTimeoutMs);
     return JSON.parse(t);
   };
 
@@ -162,7 +186,7 @@ async function fetchViaSocks(urlStr: string, options: FetchOptions = {}): Promis
 
   const [proxyHost, proxyPortStr] = SOCKS_PROXY.replace(/^socks5h?:\/\//i, '').split(':');
   const proxyPort = parseInt(proxyPortStr || '40000', 10);
-  const timeoutMs = options.timeout || 10000;
+  const timeoutMs = options.timeout || 8000;
 
   const rawSocket = await connectSocks5(targetHost, targetPort, proxyHost || '127.0.0.1', proxyPort, timeoutMs);
 
@@ -200,7 +224,6 @@ async function fetchViaSocks(urlStr: string, options: FetchOptions = {}): Promis
       if (resolved) return;
       resolved = true;
 
-      // Handle HTTP redirects (301, 302, 303, 307, 308)
       const statusCode = res.statusCode || 0;
       if (
         options.redirect !== 'manual' &&
@@ -215,7 +238,7 @@ async function fetchViaSocks(urlStr: string, options: FetchOptions = {}): Promis
         }
       }
 
-      resolve(wrapResponse(res));
+      resolve(wrapResponse(res, timeoutMs));
     });
 
     req.on('error', (err) => {
@@ -239,7 +262,7 @@ async function fetchViaSocks(urlStr: string, options: FetchOptions = {}): Promis
 async function fetchDirect(urlStr: string, options: FetchOptions = {}): Promise<UpstreamResponse> {
   const targetUrl = new URL(urlStr);
   const isHttps = targetUrl.protocol === 'https:';
-  const timeoutMs = options.timeout || 10000;
+  const timeoutMs = options.timeout || 8000;
 
   return new Promise((resolve, reject) => {
     let resolved = false;
@@ -267,7 +290,7 @@ async function fetchDirect(urlStr: string, options: FetchOptions = {}): Promise<
         }
       }
 
-      resolve(wrapResponse(res));
+      resolve(wrapResponse(res, timeoutMs));
     });
 
     const timer = setTimeout(() => {
@@ -293,20 +316,11 @@ async function fetchDirect(urlStr: string, options: FetchOptions = {}): Promise<
 }
 
 /**
- * Universal upstream fetcher:
- * Automatically uses SOCKS5 proxy if SOCKS_PROXY is configured.
- * Falls back to direct connection if proxy fails (unless socksOnly is true).
+ * Fetch URL through SOCKS5 tunnel if SOCKS_PROXY is configured; otherwise fetch directly.
  */
 export async function fetchUpstream(urlStr: string, options: FetchOptions = {}): Promise<UpstreamResponse> {
-  if (SOCKS_PROXY) {
-    try {
-      return await fetchViaSocks(urlStr, options);
-    } catch (err: any) {
-      if (options.socksOnly) {
-        throw err;
-      }
-      console.warn(`[Proxy Fallback] SOCKS proxy failed for ${urlStr}: ${err.message}. Retrying direct...`);
-    }
+  if (SOCKS_PROXY && options.socksOnly !== false) {
+    return fetchViaSocks(urlStr, options);
   }
   return fetchDirect(urlStr, options);
 }

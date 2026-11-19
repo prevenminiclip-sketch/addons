@@ -53,7 +53,8 @@ export class ProviderManager {
       return [];
     }
 
-    const PROVIDER_TIMEOUT_MS = 6500;
+    // 10-second timeout ensures all Movy clusters complete cleanly
+    const PROVIDER_TIMEOUT_MS = 10000;
 
     // 2. Query primary (Movy) and all secondary providers concurrently
     const [primaryResult, ...secondaryResults] = await Promise.allSettled([
@@ -86,14 +87,14 @@ export class ProviderManager {
       }
     }
 
-    // Rank secondary streams: 4K > 1080p > 720p > Auto > 480p
+    // Rank secondary streams: 4K UHD > 1080p > 720p > Auto > 480p
     secondaryStreams.sort((a, b) => {
       const score = (s: StremioStream) => {
-        const n = s.name.toUpperCase();
-        if (n.includes('[4K]') || n.includes('2160')) return 400;
-        if (n.includes('[1080P]')) return 300;
-        if (n.includes('[720P]')) return 200;
-        if (n.includes('[AUTO]')) return 150;
+        const titleUpper = s.title.toUpperCase();
+        if (titleUpper.includes('4K') || titleUpper.includes('2160')) return 400;
+        if (titleUpper.includes('1080P')) return 300;
+        if (titleUpper.includes('720P')) return 200;
+        if (titleUpper.includes('AUTO')) return 150;
         return 100;
       };
       return score(b) - score(a);

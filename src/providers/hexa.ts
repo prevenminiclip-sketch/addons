@@ -1,6 +1,6 @@
 import { fetchUpstream } from '../upstream';
 import { IStreamProvider, MediaTarget, ResolvedMetadata, StremioStream } from '../types';
-import { createProxiedHlsUrl, formatStreamCard } from './base';
+import { createProxiedHlsUrl, formatStreamDetails, buildStreamCard } from './base';
 
 const BACKENDS = [
   'https://api.framextv.tech',
@@ -13,7 +13,6 @@ interface FrameXSource {
   url?: string;
   quality?: string;
   type?: string;
-  skipProxy?: boolean;
 }
 
 export class HexaProvider implements IStreamProvider {
@@ -41,11 +40,10 @@ export class HexaProvider implements IStreamProvider {
 
     let responseData: any = null;
 
-    // Failover through backend pool
     for (const backend of BACKENDS) {
       try {
         const url = `${backend}/api/stream?${query}`;
-        const res = await fetchUpstream(url, { headers, timeout: 5000 });
+        const res = await fetchUpstream(url, { headers, timeout: 4000 });
         if (res.ok) {
           const json: any = await res.json();
           if (json?.success && Array.isArray(json?.sources) && json.sources.length > 0) {
@@ -69,8 +67,6 @@ export class HexaProvider implements IStreamProvider {
       seenUrls.add(rawUrl);
 
       const serverName = src.server || 'Hexa Direct';
-
-      // Direct Alpha server requires Referer: https://hexa.su/
       const isAlpha = rawUrl.includes('fuckme.dragonballzfans.xyz') || serverName.includes('Alpha');
       const neededReferer = isAlpha ? 'https://hexa.su/' : undefined;
 
@@ -79,18 +75,20 @@ export class HexaProvider implements IStreamProvider {
         accessKey,
       });
 
-      const badge = isAlpha ? '4K' : 'Auto';
+      const details = formatStreamDetails({
+        resolutionRaw: isAlpha ? '4k' : 'auto',
+        isMovie,
+        hoster: 'Hexa Direct CDN',
+        serverName: serverName.replace(/Royal Champion I\s*·\s*/i, ''),
+        audioOverride: isAlpha ? 'Dolby Atmos / 5.1' : '5.1 / AAC',
+      });
 
       streams.push(
-        formatStreamCard({
-          addonBrand: 'Hexa',
-          quality: badge,
-          title: meta.title,
-          year: meta.year,
-          serverInfo: `Hexa · ${serverName}`,
-          audioInfo: isAlpha ? 'Multi-Audio (Dolby 5.1 / Atmos)' : 'Multi-Audio',
+        buildStreamCard({
+          addonName: 'Movy',
+          title: details.title,
           streamUrl: proxiedUrl,
-          bingeGroup: `hexa-${badge.toLowerCase()}`,
+          bingeGroup: isMovie ? undefined : `hexa-${meta.tmdbId}-${target.season}`,
         })
       );
     }

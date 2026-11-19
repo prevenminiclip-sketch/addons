@@ -1,6 +1,6 @@
 import { fetchUpstream } from '../upstream';
 import { IStreamProvider, MediaTarget, ResolvedMetadata, StremioStream } from '../types';
-import { createProxiedHlsUrl, formatStreamCard, normalizeQuality } from './base';
+import { createProxiedHlsUrl, formatStreamDetails, buildStreamCard } from './base';
 
 const BACKENDS = [
   'https://api.framextv.tech',
@@ -43,7 +43,7 @@ export class RivestreamProvider implements IStreamProvider {
     for (const backend of BACKENDS) {
       try {
         const url = `${backend}/api/stream?${query}`;
-        const res = await fetchUpstream(url, { headers, timeout: 5000 });
+        const res = await fetchUpstream(url, { headers, timeout: 4000 });
         if (res.ok) {
           const json: any = await res.json();
           if (json?.success && Array.isArray(json?.sources) && json.sources.length > 0) {
@@ -65,7 +65,6 @@ export class RivestreamProvider implements IStreamProvider {
       let rawUrl = (src.url || '').trim();
       if (!rawUrl || !rawUrl.startsWith('http') || seenUrls.has(rawUrl)) continue;
 
-      // Extract direct URL if wrapped in worker proxy
       if (rawUrl.includes('hybrows.workers.dev') && rawUrl.includes('url=')) {
         try {
           const u = new URL(rawUrl);
@@ -76,22 +75,25 @@ export class RivestreamProvider implements IStreamProvider {
 
       seenUrls.add(rawUrl);
 
-      const serverName = src.server || 'Rivestream';
+      const serverName = (src.server || 'Direct').replace(/Bowler XVIII\s*·\s*/i, '');
       const rawQuality = src.quality || (rawUrl.includes('/720/') ? '720p' : rawUrl.includes('/480/') ? '480p' : 'Auto');
-      const quality = normalizeQuality(rawQuality);
 
       const proxiedUrl = createProxiedHlsUrl(rawUrl, baseUrl, { accessKey });
 
+      const details = formatStreamDetails({
+        resolutionRaw: rawQuality,
+        isMovie,
+        hoster: 'Akamai CDN',
+        serverName,
+        audioOverride: 'Multi-Language',
+      });
+
       streams.push(
-        formatStreamCard({
-          addonBrand: 'Rivestream',
-          quality,
-          title: meta.title,
-          year: meta.year,
-          serverInfo: serverName.replace(/Bowler XVIII\s*·\s*/i, ''),
-          audioInfo: 'Multi-Language',
+        buildStreamCard({
+          addonName: 'Movy',
+          title: details.title,
           streamUrl: proxiedUrl,
-          bingeGroup: `rivestream-${quality.toLowerCase()}`,
+          bingeGroup: isMovie ? undefined : `rivestream-${meta.tmdbId}-${target.season}`,
         })
       );
     }
