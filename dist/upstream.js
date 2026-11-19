@@ -111,7 +111,7 @@ function connectSocks5(targetHost, targetPort, proxyHost, proxyPort, timeoutMs) 
         });
     });
 }
-function wrapResponse(res, defaultTimeoutMs = 4000) {
+function wrapResponse(res, defaultTimeoutMs = 4000, finalUrl = '') {
     const status = res.statusCode || 0;
     const ok = (status >= 200 && status < 300) || status === 206;
     let cachedBuf = null;
@@ -160,6 +160,7 @@ function wrapResponse(res, defaultTimeoutMs = 4000) {
         ok,
         status,
         statusText: res.statusMessage || '',
+        url: finalUrl,
         headers: res.headers,
         stream: res,
         buffer,
@@ -222,7 +223,7 @@ async function fetchViaSocks(urlStr, options = {}) {
                     return resolve(fetchUpstream(nextUrl, { ...options, redirectCount }));
                 }
             }
-            resolve(wrapResponse(res, timeoutMs));
+            resolve(wrapResponse(res, timeoutMs, urlStr));
         });
         req.on('error', (err) => {
             clearTimeout(timer);
@@ -266,7 +267,7 @@ async function fetchDirect(urlStr, options = {}) {
                     return resolve(fetchUpstream(nextUrl, { ...options, redirectCount }));
                 }
             }
-            resolve(wrapResponse(res, timeoutMs));
+            resolve(wrapResponse(res, timeoutMs, urlStr));
         });
         const timer = setTimeout(() => {
             if (!resolved) {

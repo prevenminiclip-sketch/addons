@@ -8,7 +8,7 @@ version: "3.8"
 services:
   movy-stremio-addon:
     build:
-      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.0-stable
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.1-stable
     container_name: movy-stremio-addon
     restart: unless-stopped
     network_mode: "host"
@@ -20,7 +20,7 @@ services:
 
   caddy:
     build:
-      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.0-stable
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.1-stable
       dockerfile: Dockerfile.caddy
     container_name: movy-caddy-ssl
     restart: unless-stopped

@@ -32,7 +32,7 @@ version: "3.8"
 services:
   movy-stremio-addon:
     build:
-      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.0-stable
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.1-stable
     container_name: movy-stremio-addon
     restart: unless-stopped
     network_mode: "host"
@@ -44,7 +44,7 @@ services:
 
   caddy:
     build:
-      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.0-stable
+      context: https://github.com/charlietrp77-cmd/movy-stremio-addon.git#v1.2.1-stable
       dockerfile: Dockerfile.caddy
     container_name: movy-caddy-ssl
     restart: unless-stopped
@@ -95,6 +95,17 @@ If you prefer a single addon with all sources merged into one list:
 ```text
 https://my-domain.duckdns.org/manifest.json
 ```
+
+---
+
+## 📊 Interactive Diagnostics Dashboard & Stream Prober
+
+Open `https://my-domain.duckdns.org/debug` (or `http://<your-local-ip>:7000/debug`) in your web browser:
+
+1. **Live Provider Health:** View real-time status (`OK`, `EMPTY`, `TIMEOUT`, `ERROR`), latency in milliseconds, and stream counts across all providers (Movy, Hexa 4K, MovieBox, Rivestream).
+2. **On-Demand Search Tester:** Type any IMDb ID (e.g. `tt1375666` for Inception, `tt0903747:1:1` for Breaking Bad) or TMDB ID to test why a specific movie or episode returned links or was empty.
+3. **Stream Playback & Stall Prober:** Paste any stream URL or click **Probe Stream Playback** on any card to test the full pipeline (Master M3U8, Audio Track Playlists, and Initial Video Segment Chunks) to diagnose and fix playback stalling.
+4. **JSON API:** Append `&format=json` or send `Accept: application/json` for machine-readable JSON output.
 
 ---
 

@@ -122,8 +122,13 @@ export async function resolveMetadata(target: MediaTarget): Promise<ResolvedMeta
         const json: any = await res.json();
         const meta = json?.meta;
         if (meta && meta.name) {
+          const resolvedTmdb =
+            target.tmdbId ||
+            (typeof meta.moviedb_id === 'number' ? meta.moviedb_id : parseInt(meta.moviedb_id, 10)) ||
+            0;
+
           const result: ResolvedMetadata = {
-            tmdbId: target.tmdbId || 0,
+            tmdbId: resolvedTmdb,
             imdbId: target.imdbId,
             title: meta.name,
             year: (meta.year || meta.releaseInfo || '').slice(0, 4) || '2020',

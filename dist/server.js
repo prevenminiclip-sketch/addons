@@ -39,6 +39,7 @@ const providers_1 = require("./providers");
 const metadata_1 = require("./metadata");
 const hls_accelerator_1 = require("./hls-accelerator");
 const upstream_1 = require("./upstream");
+const diagnostics_ui_1 = require("./diagnostics-ui");
 const PORT = parseInt(process.env.PORT || '7000', 10);
 const ACCESS_KEY = (process.env.ACCESS_KEY || '').trim();
 const providerManager = new providers_1.ProviderManager();
@@ -46,7 +47,7 @@ const accelerator = new hls_accelerator_1.HlsAccelerator();
 const MANIFESTS = {
     all: {
         id: 'org.cinestream.all',
-        version: '1.1.1',
+        version: '1.2.1',
         name: 'Movy (All Providers)',
         description: 'Combined direct HLS streams from Movy, Hexa 4K, MovieBox, and Rivestream',
         resources: ['stream'],
@@ -57,7 +58,7 @@ const MANIFESTS = {
     },
     movy: {
         id: 'org.cinestream.movysx',
-        version: '1.1.1',
+        version: '1.2.1',
         name: 'Movy',
         description: 'Direct HLS streams from Movy & WeCollege edge clusters',
         resources: ['stream'],
@@ -68,7 +69,7 @@ const MANIFESTS = {
     },
     hexa: {
         id: 'org.cinestream.hexa',
-        version: '1.1.1',
+        version: '1.2.1',
         name: 'Hexa (4K)',
         description: 'Direct 4K HLS Master streams with multi-audio Dolby Atmos / 5.1',
         resources: ['stream'],
@@ -79,7 +80,7 @@ const MANIFESTS = {
     },
     moviebox: {
         id: 'org.cinestream.moviebox',
-        version: '1.1.1',
+        version: '1.2.1',
         name: 'MovieBox',
         description: 'Direct streams from MovieBox, Vidrock, CinemaOS, and StreamingUnity',
         resources: ['stream'],
@@ -90,7 +91,7 @@ const MANIFESTS = {
     },
     rivestream: {
         id: 'org.cinestream.rivestream',
-        version: '1.1.1',
+        version: '1.2.1',
         name: 'Rivestream',
         description: 'Direct signed Akamai CloudFront CDN streams',
         resources: ['stream'],
@@ -111,6 +112,15 @@ function sendJson(res, status, data) {
         'Cache-Control': 'max-age=1800, public',
     });
     res.end(body);
+}
+function sendHtml(res, status, html) {
+    res.writeHead(status, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': Buffer.byteLength(html),
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache',
+    });
+    res.end(html);
 }
 const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
@@ -176,7 +186,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, {
             status: 'ok',
             service: 'Movy Modular Stremio Addon Server',
-            version: '1.1.1',
+            version: '1.2.1',
             description: 'Individual providers as separate Stremio tabs or All-in-One combined',
             stremioTabs: {
                 movy: `${base}/movy/manifest.json`,
@@ -185,6 +195,7 @@ const server = http.createServer(async (req, res) => {
                 rivestream: `${base}/rivestream/manifest.json`,
                 allCombined: `${base}/manifest.json`,
             },
+            diagnosticsDashboard: `${base}/debug`,
             authenticated: !!ACCESS_KEY,
         });
     }
@@ -193,32 +204,73 @@ const server = http.createServer(async (req, res) => {
         const manifest = MANIFESTS[providerFilter] || MANIFESTS.all;
         return sendJson(res, 200, manifest);
     }
-    // Debug diagnostic endpoint
-    if (normalizedPath === '/debug') {
+    // Debug & Diagnostics suite (Web Dashboard & JSON API)
+    if (normalizedPath === '/debug' ||
+        normalizedPath === '/diagnostics' ||
+        normalizedPath === '/debug/probe' ||
+        normalizedPath === '/probe') {
+        const proto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
+        const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
+        const keyPrefix = ACCESS_KEY ? `/${ACCESS_KEY}` : '';
+        const baseUrl = `${proto}://${host}${keyPrefix}`;
         const testId = parsedUrl.searchParams.get('id') || 'tt1375666';
-        const testType = (parsedUrl.searchParams.get('type') || 'movie');
-        const diagnostics = {
-            timestamp: new Date().toISOString(),
-            testId,
-            testType,
-            nodeVersion: process.version,
-        };
+        const testType = (parsedUrl.searchParams.get('type') || (testId.includes(':') ? 'series' : 'movie'));
+        const rawProbeUrl = parsedUrl.searchParams.get('probeUrl') || parsedUrl.searchParams.get('url') || '';
+        const probeD = parsedUrl.searchParams.get('d') || '';
+        const format = (parsedUrl.searchParams.get('format') || '').toLowerCase();
+        const wantsJson = format === 'json' || req.headers['accept']?.includes('application/json');
+        let probeTarget = rawProbeUrl.trim();
+        let probeRef = parsedUrl.searchParams.get('ref') || undefined;
+        // Decode proxy URL or 'd' parameter if supplied
+        if (!probeTarget && probeD) {
+            try {
+                probeTarget = Buffer.from(probeD, 'base64url').toString('utf8');
+            }
+            catch { }
+        }
+        else if (probeTarget.includes('/proxy/hls')) {
+            try {
+                const u = new url_1.URL(probeTarget, baseUrl);
+                const dParam = u.searchParams.get('d');
+                if (dParam) {
+                    probeTarget = Buffer.from(dParam, 'base64url').toString('utf8');
+                }
+                const refParam = u.searchParams.get('ref');
+                if (refParam) {
+                    probeRef = Buffer.from(refParam, 'base64url').toString('utf8');
+                }
+            }
+            catch { }
+        }
         try {
             const target = (0, metadata_1.parseStremioId)(testType, testId);
-            const meta = await (0, metadata_1.resolveMetadata)(target);
-            diagnostics.resolvedMetadata = meta;
-            const proto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
-            const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
-            const baseUrl = `${proto}://${host}`;
-            const streams = await providerManager.getStreams(target, baseUrl, ACCESS_KEY);
-            diagnostics.streamsCount = streams.length;
-            diagnostics.providersSummary = streams.map((s) => s.name);
-            diagnostics.firstStream = streams[0] || null;
+            const report = await providerManager.getDiagnostics(target, baseUrl, ACCESS_KEY, providerFilter);
+            let probeReport = undefined;
+            if (probeTarget) {
+                probeReport = await providerManager.probeStream(probeTarget, probeRef);
+            }
+            if (wantsJson) {
+                return sendJson(res, 200, {
+                    report,
+                    probeReport,
+                });
+            }
+            const html = (0, diagnostics_ui_1.renderDiagnosticsHtml)({
+                report,
+                baseUrl,
+                probeReport,
+                targetId: testId,
+                targetType: testType,
+                activeProvider: providerFilter,
+            });
+            return sendHtml(res, 200, html);
         }
         catch (err) {
-            diagnostics.error = err.message || String(err);
+            if (wantsJson) {
+                return sendJson(res, 500, { error: err.message || String(err) });
+            }
+            return sendHtml(res, 500, `<h1>Diagnostics Error</h1><p>${err.message || String(err)}</p>`);
         }
-        return sendJson(res, 200, diagnostics);
     }
     // HLS Stream & Segment Proxy Endpoint with Multi-Stream Accelerator
     if (normalizedPath.startsWith('/proxy/hls')) {
@@ -283,17 +335,23 @@ const server = http.createServer(async (req, res) => {
                 const proxyBase = `${proto}://${host}${keyPrefix}`;
                 const keyQuery = ACCESS_KEY ? `&k=${encodeURIComponent(ACCESS_KEY)}` : '';
                 const refQuery = rawRef ? `&ref=${encodeURIComponent(rawRef)}` : '';
+                const finalTargetUrl = upstreamRes.url || targetUrl;
                 // If this is a media playlist with segment chunks, register for multi-stream prefetching
                 if (text.includes('#EXTINF:')) {
                     const segmentUrls = [];
                     for (const l of text.split('\n')) {
                         const t = l.trim();
                         if (t && !t.startsWith('#')) {
-                            const abs = new url_1.URL(t, targetUrl).toString();
-                            segmentUrls.push(abs);
+                            try {
+                                const abs = new url_1.URL(t, finalTargetUrl).toString();
+                                segmentUrls.push(abs);
+                            }
+                            catch { }
                         }
                     }
-                    accelerator.registerPlaylist(targetUrl, segmentUrls);
+                    if (segmentUrls.length > 0) {
+                        accelerator.registerPlaylist(finalTargetUrl, segmentUrls);
+                    }
                 }
                 const rewritten = text
                     .split('\n')
@@ -301,27 +359,46 @@ const server = http.createServer(async (req, res) => {
                     const trimmed = line.trim();
                     if (!trimmed)
                         return line;
-                    if (trimmed.startsWith('#EXT-X-MAP:URI=')) {
-                        const match = trimmed.match(/#EXT-X-MAP:URI="([^"]+)"/);
-                        if (match) {
-                            const absUri = new url_1.URL(match[1], targetUrl).toString();
-                            const enc = Buffer.from(absUri, 'utf8').toString('base64url');
-                            return `#EXT-X-MAP:URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}${refQuery}${keyQuery}"`;
+                    // Handle HLS tag lines with embedded URIs (audio tracks, subtitles, keys, init segments)
+                    if (trimmed.startsWith('#')) {
+                        if (trimmed.includes('URI="')) {
+                            return trimmed.replace(/URI="([^"]+)"/g, (_, rawUri) => {
+                                try {
+                                    const absUri = new url_1.URL(rawUri, finalTargetUrl).toString();
+                                    const enc = Buffer.from(absUri, 'utf8').toString('base64url');
+                                    if (absUri.includes('.m3u8')) {
+                                        return `URI="${proxyBase}/proxy/hls/stream.m3u8?d=${enc}${refQuery}${keyQuery}"`;
+                                    }
+                                    else if (absUri.includes('.mp4') || absUri.includes('.m4s') || absUri.includes('init')) {
+                                        return `URI="${proxyBase}/proxy/hls/init.mp4?d=${enc}${refQuery}${keyQuery}"`;
+                                    }
+                                    else if (absUri.includes('.key')) {
+                                        return `URI="${proxyBase}/proxy/hls/key.bin?d=${enc}${refQuery}${keyQuery}"`;
+                                    }
+                                    return `URI="${proxyBase}/proxy/hls/seg.ts?d=${enc}${refQuery}${keyQuery}"`;
+                                }
+                                catch {
+                                    return `URI="${rawUri}"`;
+                                }
+                            });
                         }
                         return line;
                     }
-                    if (trimmed.startsWith('#'))
-                        return line;
-                    const absUrl = new url_1.URL(trimmed, targetUrl).toString();
-                    // Sub-playlists must always be proxied with .m3u8 extension for ExoPlayer
-                    if (absUrl.includes('.m3u8')) {
+                    // Normal line (sub-playlist or segment chunk URL)
+                    try {
+                        const absUrl = new url_1.URL(trimmed, finalTargetUrl).toString();
                         const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
-                        return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}${refQuery}${keyQuery}`;
+                        // Sub-playlists must always be proxied with .m3u8 extension for ExoPlayer
+                        if (absUrl.includes('.m3u8')) {
+                            return `${proxyBase}/proxy/hls/stream.m3u8?d=${enc}${refQuery}${keyQuery}`;
+                        }
+                        // Route media segments through the multi-connection accelerator proxy
+                        const segExt = absUrl.includes('.m4s') ? 'seg.m4s' : 'seg.ts';
+                        return `${proxyBase}/proxy/hls/${segExt}?d=${enc}${refQuery}${keyQuery}`;
                     }
-                    // Route media segments through the multi-connection accelerator proxy
-                    const enc = Buffer.from(absUrl, 'utf8').toString('base64url');
-                    const segExt = absUrl.includes('.m4s') ? 'seg.m4s' : 'seg.ts';
-                    return `${proxyBase}/proxy/hls/${segExt}?d=${enc}${refQuery}${keyQuery}`;
+                    catch {
+                        return line;
+                    }
                 })
                     .join('\n');
                 res.writeHead(200, {
@@ -352,8 +429,30 @@ const server = http.createServer(async (req, res) => {
             if (ar)
                 resHeaders['Accept-Ranges'] = ar;
             res.writeHead(upstreamRes.status, resHeaders);
-            res.on('close', () => {
+            // Data stall watchdog: terminate dead/hanging sockets after 10s of inactivity
+            let stallTimer = setTimeout(() => {
+                console.warn(`[HLS Segment Stall] Upstream stalled for >10s on ${targetUrl}`);
                 upstreamRes.stream.destroy();
+                res.destroy();
+            }, 10000);
+            upstreamRes.stream.on('data', () => {
+                clearTimeout(stallTimer);
+                stallTimer = setTimeout(() => {
+                    console.warn(`[HLS Segment Stall] Upstream stalled for >10s on ${targetUrl}`);
+                    upstreamRes.stream.destroy();
+                    res.destroy();
+                }, 10000);
+            });
+            res.on('close', () => {
+                clearTimeout(stallTimer);
+                upstreamRes.stream.destroy();
+            });
+            upstreamRes.stream.on('error', (err) => {
+                clearTimeout(stallTimer);
+                console.error(`[HLS Segment Error] ${err?.message || err}`);
+            });
+            upstreamRes.stream.on('end', () => {
+                clearTimeout(stallTimer);
             });
             upstreamRes.stream.pipe(res);
             return;
@@ -399,6 +498,8 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`   - Rivestream: http://localhost:${PORT}${keyPrefix}/rivestream/manifest.json`);
     console.log(`⚡ Combined Addon (All Providers in one tab):`);
     console.log(`   - All-in-One: http://localhost:${PORT}${keyPrefix}/manifest.json`);
+    console.log(`📊 Diagnostics Dashboard & Stream Prober:`);
+    console.log(`   - Web / JSON: http://localhost:${PORT}${keyPrefix}/debug`);
     console.log(`⚡ HLS Multi-Stream Accelerator: Active`);
     if (ACCESS_KEY) {
         console.log(`🔒 Secret Access Token: Enabled (${ACCESS_KEY})`);

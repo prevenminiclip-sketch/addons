@@ -21,6 +21,7 @@ export interface UpstreamResponse {
   ok: boolean;
   status: number;
   statusText: string;
+  url: string;
   headers: http.IncomingHttpHeaders;
   stream: Readable;
   text: (readTimeoutMs?: number) => Promise<string>;
@@ -111,7 +112,7 @@ function connectSocks5(
   });
 }
 
-function wrapResponse(res: http.IncomingMessage, defaultTimeoutMs: number = 4000): UpstreamResponse {
+function wrapResponse(res: http.IncomingMessage, defaultTimeoutMs: number = 4000, finalUrl: string = ''): UpstreamResponse {
   const status = res.statusCode || 0;
   const ok = (status >= 200 && status < 300) || status === 206;
   let cachedBuf: Buffer | null = null;
@@ -167,6 +168,7 @@ function wrapResponse(res: http.IncomingMessage, defaultTimeoutMs: number = 4000
     ok,
     status,
     statusText: res.statusMessage || '',
+    url: finalUrl,
     headers: res.headers,
     stream: res,
     buffer,
@@ -238,7 +240,7 @@ async function fetchViaSocks(urlStr: string, options: FetchOptions = {}): Promis
         }
       }
 
-      resolve(wrapResponse(res, timeoutMs));
+      resolve(wrapResponse(res, timeoutMs, urlStr));
     });
 
     req.on('error', (err) => {
@@ -290,7 +292,7 @@ async function fetchDirect(urlStr: string, options: FetchOptions = {}): Promise<
         }
       }
 
-      resolve(wrapResponse(res, timeoutMs));
+      resolve(wrapResponse(res, timeoutMs, urlStr));
     });
 
     const timer = setTimeout(() => {
