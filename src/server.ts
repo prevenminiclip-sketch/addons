@@ -305,9 +305,9 @@ const server = http.createServer(async (req, res) => {
     const isM3u8 = targetUrl.includes('.m3u8') || normalizedPath.endsWith('.m3u8');
     const rangeHeader = req.headers['range'] as string | undefined;
 
-    // Fast-path: Check HLS Multi-Stream Accelerator Cache for video segments (.m4s, .ts)
-    if (!isM3u8) {
-      const cached = await accelerator.getSegment(targetUrl, rangeHeader, customReferer);
+    // Fast-path: Check HLS Multi-Stream Accelerator Cache for full video segments without Range
+    if (!isM3u8 && !rangeHeader) {
+      const cached = await accelerator.getSegment(targetUrl, customReferer);
       if (cached) {
         res.writeHead(200, {
           'Access-Control-Allow-Origin': '*',

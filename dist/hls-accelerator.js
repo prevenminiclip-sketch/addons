@@ -69,11 +69,12 @@ class HlsAccelerator {
     }
     /**
      * Get a segment from cache or download it immediately, and trigger background prefetching
+     * (Accelerates full segment requests; partial byte-range requests stream directly)
      */
-    async getSegment(url, rangeHeader, customReferer) {
+    async getSegment(url, customReferer) {
         const now = Date.now();
-        // 1. Check if already in cache and not expired (only for full segments without range)
-        if (!rangeHeader && this.cache.has(url)) {
+        // 1. Check if already in cache and not expired
+        if (this.cache.has(url)) {
             const entry = this.cache.get(url);
             if (now - entry.fetchedAt < this.ttlMs) {
                 this.triggerPrefetch(url, customReferer);
@@ -84,7 +85,7 @@ class HlsAccelerator {
             }
         }
         // 2. Check if already in-flight (downloading in background)
-        if (!rangeHeader && this.inFlight.has(url)) {
+        if (this.inFlight.has(url)) {
             const result = await this.inFlight.get(url);
             if (result) {
                 this.triggerPrefetch(url, customReferer);
@@ -92,8 +93,8 @@ class HlsAccelerator {
             }
         }
         // 3. Download segment directly
-        const result = await this.fetchSegmentDirect(url, rangeHeader, customReferer);
-        if (result && !rangeHeader) {
+        const result = await this.fetchSegmentDirect(url, undefined, customReferer);
+        if (result) {
             this.storeInCache(url, result);
             this.triggerPrefetch(url, customReferer);
         }
